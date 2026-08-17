@@ -1,0 +1,86 @@
+@page "/Search"
+<h3>Search</h3>
+
+<div class="mb-3">
+    <label for="searchKey" class="form-label">Chiave di ricerca</label>
+    <input id="searchKey"
+           class="form-control"
+           @bind="SearchKey"
+           @bind:event="oninput" />
+</div>
+
+<button class="btn btn-primary mb-3" @onclick="OnSearch">
+    Cerca
+</button>
+
+@if (IsSearching)
+{
+    <p>Ricerca in corso...</p>
+}
+else if (Results is { Count: > 0 })
+{
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Valore</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var (item, index) in Results.Select((value, i) => (value, i + 1)))
+            {
+                <tr>
+                    <td>@index</td>
+                    <td>@item</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+else if (HasSearched)
+{
+    <p>Nessun risultato trovato.</p>
+}
+
+@code {
+    // Testo inserito nel textbox
+    private string SearchKey { get; set; } = string.Empty;
+
+    // Risultati della ricerca
+    private List<string> Results { get; set; } = new();
+
+    // Flag per mostrare messaggi di stato
+    private bool IsSearching { get; set; }
+    private bool HasSearched { get; set; }
+
+    private async Task OnSearch()
+    {
+        HasSearched = false;
+        IsSearching = true;
+        Results.Clear();
+
+        // Simula un'operazione asincrona (es. chiamata a un servizio/DB)
+        await Task.Delay(500);
+
+        // Logica di esempio: filtra da una lista fittizia
+        var data = new List<string>
+        {
+            "Apple",
+            "Banana",
+            "Cherry",
+            "Date",
+            "Grapes",
+            "Pineapple"
+        };
+
+        if (!string.IsNullOrWhiteSpace(SearchKey))
+        {
+            Results = data
+                .Where(x => x.Contains(SearchKey, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+
+        IsSearching = false;
+        HasSearched = true;
+    }
+}

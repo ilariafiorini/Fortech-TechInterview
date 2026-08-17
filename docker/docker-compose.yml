@@ -1,0 +1,110 @@
+# Ambiente Docker Compose per testare l'intera solution in Docker Desktop senza SDK .NET
+# installato in locale. Scritto a mano, modellato sull'output che genera nativamente
+# `aspire publish` a partire da AddDockerComposeEnvironment("env") in AppHost.cs — vedi
+# docker/README.md per i dettagli e per come rigenerarlo con la Aspire CLI.
+
+services:
+  aspire-dashboard:
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:latest
+    container_name: aspire-dashboard
+    environment:
+      DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS: "true"
+    ports:
+      - "18888:18888" # UI -> http://localhost:18888
+      - "18889:18889" # OTLP gRPC endpoint
+    networks: [techinterview]
+
+  airportsservice:
+    build:
+      context: ..
+      dockerfile: src/AirportsService/Dockerfile
+    container_name: airportsservice
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_HTTP_PORTS: "8080"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://aspire-dashboard:18889
+      OTEL_SERVICE_NAME: airportsservice
+    ports:
+      - "8081:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    networks: [techinterview]
+
+  flightsservice:
+    build:
+      context: ..
+      dockerfile: src/FlightsService/Dockerfile
+    container_name: flightsservice
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_HTTP_PORTS: "8080"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://aspire-dashboard:18889
+      OTEL_SERVICE_NAME: flightsservice
+    ports:
+      - "8082:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    networks: [techinterview]
+
+  globalsearchservice:
+    build:
+      context: ..
+      dockerfile: src/GlobalSearchService/Dockerfile
+    container_name: globalsearchservice
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_HTTP_PORTS: "8080"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://aspire-dashboard:18889
+      OTEL_SERVICE_NAME: globalsearchservice
+      Services__airportsservice__http__0: http://airportsservice:8080
+      Services__flightsservice__http__0: http://flightsservice:8080
+    ports:
+      - "8083:8080"
+    depends_on:
+      airportsservice:
+        condition: service_healthy
+      flightsservice:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    networks: [techinterview]
+
+  webfrontend:
+    build:
+      context: ..
+      dockerfile: src/TechInterview.Web/Dockerfile
+    container_name: webfrontend
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_HTTP_PORTS: "8080"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://aspire-dashboard:18889
+      OTEL_SERVICE_NAME: webfrontend
+      Services__airportsservice__http__0: http://airportsservice:8080
+      Services__flightsservice__http__0: http://flightsservice:8080
+      Services__globalsearchservice__http__0: http://globalsearchservice:8080
+    ports:
+      - "8080:8080"
+    depends_on:
+      airportsservice:
+        condition: service_healthy
+      flightsservice:
+        condition: service_healthy
+      globalsearchservice:
+        condition: service_healthy
+    networks: [techinterview]
+
+networks:
+  techinterview:
+    driver: bridge

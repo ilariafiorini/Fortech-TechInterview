@@ -1,0 +1,69 @@
+﻿@page "/airports/{Id}"
+@rendermode InteractiveServer
+@inject NavigationManager Nav
+@inject IHttpClientFactory ClientFactory
+
+<h3>Airport Detail</h3>
+
+@if (_airport is null)
+{
+    <p><em>Loading...</em></p>
+}
+else
+{
+    <div class="card mt-3 shadow-sm">
+        <div class="card-body">
+
+            <h4>@_airport.Id</h4>
+            <p class="text-muted">@_airport.Name</p>
+
+            <div class="row mt-3">
+
+                <div class="col-6">
+                    <h5>City</h5>
+                    <p>@_airport.City</p>
+                </div>
+
+                <div class="col-6">
+                    <h5>Country</h5>
+                    <p>@_airport.Country</p>
+                </div>
+            </div>
+
+            <button class="btn btn-secondary mt-3" @onclick="GoBack">
+                Back
+            </button>
+
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string? Id { get; set; }
+
+    private AirportDto? _airport;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(Id))
+        {
+            var client = ClientFactory.CreateClient("airports");
+
+            _airport = await client.GetFromJsonAsync<AirportDto>($"/api/airports/{Id}");
+        }
+    }
+
+    private void GoBack()
+    {
+        // Torna semplicemente alla lista (offset/limit saranno ripristinati da query param)
+        Nav.NavigateTo("/airports");
+    }
+
+    public class AirportDto
+    {
+        public string? Id { get; set; }
+        public string? Name { get; set; }
+        public string? City { get; set; }
+        public string? Country { get; set; }
+    }
+}

@@ -1,0 +1,115 @@
+@page "/flights"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.WebUtilities
+@inject NavigationManager Nav
+@inject FlightsService.Grpc.Flights.FlightsClient FlightsClient
+
+<h3>Flights</h3>
+
+<div class="table-responsive mt-3">
+    @if (_flights is null)
+    {
+        <p><em>Loading...</em></p>
+    }
+    else
+    {
+        <table class="table table-striped table-hover">
+            <thead>
+                <tr>
+                    <th>Code</th>
+                    <th>Aircraft</th>
+                    <th>Departure</th>
+                    <th>Arrival</th>
+                    <th>Departure Time</th>
+                    <th>Arrival Time</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var f in _flights)
+                {
+                    <tr>
+                        <td>
+                            <NavLink href="@($"/flights/{f.Id}")">
+                                @f.Id
+                            </NavLink>
+                        </td>
+                        <td>@f.AircraftNumber</td>
+                        <td>@f.DepartureCity (@f.DepartureAirportCode)</td>
+                        <td>@f.ArrivalCity (@f.ArrivalAirportCode)</td>
+                        <td>@DateTime.Parse(f.DepartureTime).ToLocalTime()</td>
+                        <td>@DateTime.Parse(f.ArrivalTime).ToLocalTime()</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+
+        <div class="d-flex justify-content-between mt-3">
+            <button class="btn btn-primary" @onclick="PreviousPage" disabled="@(_offset == 0)">Previous</button>
+            <button class="btn btn-primary" @onclick="NextPage">Next</button>
+        </div>
+
+        <p class="mt-2 text-muted">
+            Showing @_flights.Count flights (offset @_offset, limit @_limit) — total @TotalCount
+        </p>
+    }
+</div>
+
+@code {
+    private List<FlightsService.Grpc.Flight>? _flights;
+
+    private int _offset = 0;
+    private int _limit = 20;
+    private int TotalCount = 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        ReadQueryParams();
+        await LoadFlights();
+    }
+
+    private void ReadQueryParams()
+    {
+        var uri = Nav.ToAbsoluteUri(Nav.Uri);
+        var query = QueryHelpers.ParseQuery(uri.Query);
+
+        if (query.TryGetValue("offset", out var offStr) && int.TryParse(offStr, out var off))
+            _offset = off;
+
+        if (query.TryGetValue("limit", out var limStr) && int.TryParse(limStr, out var lim))
+            _limit = lim;
+    }
+
+    private async Task LoadFlights()
+    {
+        var request = new FlightsService.Grpc.GetFlightsRequest
+        {
+            Offset = _offset,
+            Limit = _limit
+        };
+
+        var response = await FlightsClient.GetFlightsAsync(request);
+
+        _flights = response.Flights.ToList();
+        TotalCount = response.TotalCount;
+    }
+
+    private async Task NextPage()
+    {
+        _offset += _limit;
+        UpdateUrl();
+        await LoadFlights();
+    }
+
+    private async Task PreviousPage()
+    {
+        _offset = Math.Max(0, _offset - _limit);
+        UpdateUrl();
+        await LoadFlights();
+    }
+
+    private void UpdateUrl()
+    {
+        var url = $"/flights?offset={_offset}&limit={_limit}";
+        Nav.NavigateTo(url, replace: true);  // evita di riempire la history
+    }
+}

@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+option csharp_namespace = "FlightsService.Grpc";
+
+package flights;
+
+// -------- MODELS --------
+message Flight {
+  string id = 1;
+  string aircraftNumber = 2;
+  string departureAirportCode = 3;
+  string arrivalAirportCode = 4;
+  string departureCity = 5;
+  string arrivalCity = 6;
+  string departureTime = 7;
+  string arrivalTime = 8;
+}
+
+// -------- REQUEST/RESPONSE --------
+message GetFlightsRequest {
+  int32 offset = 1; // default 0
+  int32 limit = 2;  // default 50
+}
+
+message GetFlightsResponse {
+  repeated Flight flights = 1;
+  int32 offset = 2;
+  int32 limit = 3;
+  int32 totalCount = 4;
+}
+
+message GetFlightByIdRequest {
+  string id = 1;
+}
+
+message GetFlightByIdResponse {
+  Flight flight = 1;
+}
+
+// -------- SERVICE --------
+service Flights {
+  rpc GetFlights (GetFlightsRequest) returns (GetFlightsResponse);
+  rpc GetFlightById (GetFlightByIdRequest) returns (GetFlightByIdResponse);
+}

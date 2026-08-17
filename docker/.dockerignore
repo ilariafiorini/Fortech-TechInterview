@@ -1,0 +1,11 @@
+**/bin/
+**/obj/
+**/.vs/
+**/.idea/
+**/.aspire/
+**/*.user
+.git/
+.gitignore
+docs/
+tests/
+**/appsettings.Development.json

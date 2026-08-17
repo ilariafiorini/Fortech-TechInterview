@@ -1,0 +1,60 @@
+﻿@page "/flights/{Id}"
+@rendermode InteractiveServer
+@inject NavigationManager Nav
+@inject FlightsService.Grpc.Flights.FlightsClient FlightsClient
+
+<h3>Flight Detail</h3>
+
+@if (_flight is null)
+{
+    <p><em>Loading...</em></p>
+}
+else
+{
+    <div class="card mt-3 shadow-sm">
+        <div class="card-body">
+
+            <h4>@_flight.Id</h4>
+            <p class="text-muted">@_flight.AircraftNumber</p>
+
+            <div class="row">
+                <div class="col-6">
+                    <h5>Departure</h5>
+                    <p>@_flight.DepartureCity (@_flight.DepartureAirportCode)</p>
+                    <p>@DateTime.Parse(_flight.DepartureTime).ToLocalTime()</p>
+                </div>
+                <div class="col-6">
+                    <h5>Arrival</h5>
+                    <p>@_flight.ArrivalCity (@_flight.ArrivalAirportCode)</p>
+                    <p>@DateTime.Parse(_flight.ArrivalTime).ToLocalTime()</p>
+                </div>
+            </div>
+
+            <button class="btn btn-secondary mt-3" @onclick="GoBack">Back</button>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string? Id { get; set; }
+
+    private FlightsService.Grpc.Flight? _flight;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(Id))
+        {
+            var response = await FlightsClient.GetFlightByIdAsync(new()
+            {
+                Id = Id
+            });
+
+            _flight = response.Flight;
+        }
+    }
+
+    private void GoBack()
+    {
+        Nav.NavigateTo("/flights");
+    }
+}
