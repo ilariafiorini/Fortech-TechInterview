@@ -2,6 +2,10 @@
 # installato in locale. Scritto a mano, modellato sull'output che genera nativamente
 # `aspire publish` a partire da AddDockerComposeEnvironment("env") in AppHost.cs — vedi
 # docker/README.md per i dettagli e per come rigenerarlo con la Aspire CLI.
+#
+# Le porte esposte sull'host sono parametrizzate tramite il file .env in questa stessa
+# cartella (letto automaticamente da Docker Compose) — modifica quello se ti servono
+# porte diverse, non serve toccare questo file.
 
 services:
   aspire-dashboard:
@@ -10,8 +14,32 @@ services:
     environment:
       DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS: "true"
     ports:
-      - "18888:18888" # UI -> http://localhost:18888
-      - "18889:18889" # OTLP gRPC endpoint
+      - "${ASPIRE_DASHBOARD_PORT:-18888}:18888" # UI -> http://localhost:<porta>
+      - "${ASPIRE_DASHBOARD_OTLP_PORT:-18889}:18889" # OTLP gRPC endpoint
+    networks: [techinterview]
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks: [techinterview]
+
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: redis-commander
+    environment:
+      REDIS_HOSTS: local:redis:6379
+    ports:
+      - "${REDIS_COMMANDER_PORT:-8084}:8081" # UI, per ispezionare le chiavi cacheate a mano
+    depends_on:
+      redis:
+        condition: service_healthy
     networks: [techinterview]
 
   airportsservice:
@@ -25,7 +53,7 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://aspire-dashboard:18889
       OTEL_SERVICE_NAME: airportsservice
     ports:
-      - "8081:8080"
+      - "${AIRPORTS_PORT:-8081}:8080"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
@@ -42,12 +70,16 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_HTTP_PORTS: "8080"
+      # Porta HTTP/1.1 separata, solo per l'healthcheck: vedi il commento in
+      # src/FlightsService/Program.cs sul perche' non puo' condividere la porta 8080
+      # (HTTP/2 puro, richiesta dai client gRPC) senza TLS.
+      FLIGHTS_HEALTH_PORT: "8090"
       OTEL_EXPORTER_OTLP_ENDPOINT: http://aspire-dashboard:18889
       OTEL_SERVICE_NAME: flightsservice
     ports:
-      - "8082:8080"
+      - "${FLIGHTS_PORT:-8082}:8080"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8090/health"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -66,12 +98,15 @@ services:
       OTEL_SERVICE_NAME: globalsearchservice
       Services__airportsservice__http__0: http://airportsservice:8080
       Services__flightsservice__http__0: http://flightsservice:8080
+      ConnectionStrings__cache: redis:6379
     ports:
-      - "8083:8080"
+      - "${GLOBALSEARCH_PORT:-8083}:8080"
     depends_on:
       airportsservice:
         condition: service_healthy
       flightsservice:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
@@ -95,7 +130,7 @@ services:
       Services__flightsservice__http__0: http://flightsservice:8080
       Services__globalsearchservice__http__0: http://globalsearchservice:8080
     ports:
-      - "8080:8080"
+      - "${WEBFRONTEND_PORT:-8080}:8080"
     depends_on:
       airportsservice:
         condition: service_healthy

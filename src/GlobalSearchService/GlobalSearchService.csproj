@@ -25,6 +25,12 @@
     </ItemGroup>
 
     <ItemGroup>
+      <!-- Cache Redis: client raw (IConnectionMultiplexer) + astrazione IDistributedCache -->
+      <PackageReference Include="Aspire.StackExchange.Redis" Version="13.4.6" />
+      <PackageReference Include="Aspire.StackExchange.Redis.DistributedCaching" Version="13.4.6" />
+    </ItemGroup>
+
+    <ItemGroup>
       <ProjectReference Include="..\TechInterview.ServiceDefaults\TechInterview.ServiceDefaults.csproj" />
     </ItemGroup>
 

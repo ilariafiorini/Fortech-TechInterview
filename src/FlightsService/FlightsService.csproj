@@ -19,6 +19,10 @@
 
     <ItemGroup>
         <PackageReference Include="Grpc.AspNetCore" Version="2.83.0" />
+        <!-- Reflection: permette a client generici (grpcurl, grpcui, Postman/Insomnia) di scoprire
+             i servizi/metodi esposti senza dover importare a mano Protos\flights.proto — l'equivalente,
+             per gRPC, di quello che Scalar/OpenAPI offre per le REST API. -->
+        <PackageReference Include="Grpc.AspNetCore.Server.Reflection" Version="2.83.0" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.11" />
     </ItemGroup>
 

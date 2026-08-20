@@ -3,15 +3,34 @@
 Questa cartella contiene tutto il necessario per eseguire l'intera solution
 containerizzata in Docker Desktop, senza bisogno dell'SDK .NET installato in locale.
 
+> Elenco rapido di tutti i link (comprese le porte non citate qui sotto): vedi
+> `docker/LINK-SERVIZI.md`.
+
 ## Servizi
 
 | Servizio            | Porta host | Descrizione                                       |
-|----------------------|-----------|----------------------------------------------------|
-| webfrontend           | 8080      | Frontend Blazor Server                              |
-| airportsservice        | 8081      | REST API — CRUD aeroporti                           |
-| flightsservice         | 8082      | gRPC API — CRUD voli                                |
-| globalsearchservice    | 8083      | Global Search API — **attualmente un MOCKUP**       |
-| aspire-dashboard       | 18888     | Dashboard OpenTelemetry (log/traccia/metriche)      |
+|----------------------|-----------|------------------------------------------------------|
+| webfrontend           | 8080      | Frontend Blazor Server                                |
+| airportsservice        | 8081      | REST API — CRUD aeroporti                             |
+| flightsservice         | 8082      | gRPC API — CRUD voli                                  |
+| globalsearchservice    | 8083      | Global Search API — **attualmente un MOCKUP**         |
+| aspire-dashboard       | 18888     | Dashboard OpenTelemetry (log/traccia/metriche)        |
+| redis                  | 6379      | Cache usata da globalsearchservice                    |
+| redis-commander        | 8084      | UI web per ispezionare a mano le chiavi in Redis      |
+
+Tutte le porte host elencate sopra sono i **valori di default**: sono parametrizzate
+tramite variabili d'ambiente lette dal file `docker/.env` (Docker Compose lo carica
+automaticamente, senza bisogno di flag aggiuntivi). Se una di queste porte e' gia'
+occupata da un altro servizio sul tuo computer, apri `docker/.env` e cambia il numero
+corrispondente (es. `WEBFRONTEND_PORT=9080`), poi riavvia con `docker compose down` e
+di nuovo `docker compose up --build` — non serve toccare `docker-compose.yml`.
+
+`flightsservice` usa internamente anche una seconda porta, 8090, **non pubblicata
+sull'host** (quindi non serve parametrizzarla in `.env`, non puo' avere conflitti
+con altri servizi del tuo computer): serve solo all'healthcheck Docker interno al
+container, perche' la porta 8082/8080 e' HTTP/2 puro (richiesto dai client gRPC) e
+non risponde a `curl` in HTTP/1.1. Dettagli nel commento in
+`src/FlightsService/Program.cs`.
 
 ## Come avviarlo
 
@@ -27,6 +46,7 @@ Al termine dello startup:
 - http://localhost:8081/scalar — Scalar UI per AirportsService
 - http://localhost:8083/api/global-search?query=mxp — endpoint mockup della Global Search API
 - http://localhost:18888 — Aspire Dashboard (log/traccia/metriche di tutti i servizi)
+- http://localhost:8084 — Redis Commander (per vedere le chiavi cacheate)
 
 Per fermare tutto:
 
@@ -43,6 +63,63 @@ Gli endpoint di health-check (`/health`, `/alive`) esposti da
 servizi in questo compose girano in Development anziche' in Production: serve
 sia a far funzionare gli `healthcheck:`/`depends_on: condition: service_healthy`,
 sia ad avere le UI Scalar/OpenAPI disponibili per testare gli endpoint a mano.
+
+## Come esplorare e testare FlightsService (gRPC)
+
+FlightsService non ha una controparte di Scalar/OpenAPI: essendo un'API gRPC pura
+(nessuna rotta REST), non esiste uno "spec" OpenAPI da mostrare in una UI web, e gli
+strumenti sono diversi da quelli REST. In compenso, in Development espone la
+**reflection gRPC** (`Grpc.AspNetCore.Server.Reflection`), che permette a un client
+generico di scoprire da solo i servizi/metodi esposti, senza dover importare a mano
+`Protos/flights.proto` — e' concettualmente l'equivalente, per gRPC, di quello che
+OpenAPI offre alle REST API.
+
+Con la reflection attiva puoi usare, ad esempio:
+
+- **grpcurl** (CLI, l'equivalente di curl per gRPC — richiede solo `-plaintext`
+  perche' qui non c'e' TLS):
+
+  ```
+  grpcurl -plaintext localhost:8082 list
+  grpcurl -plaintext localhost:8082 describe flights.Flights
+  grpcurl -plaintext -d "{\"offset\": 0, \"limit\": 5}" localhost:8082 flights.Flights/GetFlights
+  grpcurl -plaintext -d "{\"id\": \"<un-id-restituito-sopra>\"}" localhost:8082 flights.Flights/GetFlightById
+  ```
+
+- **grpcui** (`grpcui -plaintext localhost:8082`): stessa idea di grpcurl ma con una UI
+  web tipo Swagger UI, generata automaticamente dalla reflection.
+- **Postman** o **Insomnia**: entrambi supportano gRPC nativamente; basta creare una
+  richiesta gRPC verso `localhost:8082` e usare "usa reflection del server" invece di
+  importare il file `.proto`.
+
+Nota: la reflection e' mappata solo quando `ASPNETCORE_ENVIRONMENT=Development` (come
+gia' per Scalar), quindi funziona con questo `docker-compose.yml` ma andrebbe rimossa
+o protetta in un'ipotetica build di Production.
+
+## Come vedere la cache in azione (anche con il mockup)
+
+Anche prima di implementare la ricerca reale puoi osservare il comportamento della
+cache, perche' il filtro che decide "quali elementi del set cacheato corrispondono
+ancora alla query piu' specifica" (in `CachingGlobalSearchService`) lavora sulla
+`Description` degli item, che nel mockup e' fissa (`"MXP - Malpensa (Italy)"`,
+`"AZ178 - MXP -> JFK"`). Prova ad esempio:
+
+```
+curl "http://localhost:8083/api/global-search?query=mxp"    # cache miss: interroga il mock, cachea 2 elementi
+curl "http://localhost:8083/api/global-search?query=mxpz"   # cache hit su "mxp": filtra in memoria, 0 risultati
+curl "http://localhost:8083/api/global-search?query=jfk"    # nessuna query cacheata e' sottostringa: nuovo cache miss
+```
+
+Per ispezionare direttamente lo stato di Redis, da terminale:
+
+```
+docker exec -it redis redis-cli
+> KEYS globalsearch:*
+> SMEMBERS globalsearch:known-queries
+> TTL globalsearch:results:mxp
+```
+
+oppure usa l'interfaccia grafica su http://localhost:8084 (Redis Commander).
 
 ## Relazione con .NET Aspire
 
@@ -71,10 +148,10 @@ fare troppo affidamento su di esso).
 
 - `airportsservice`, `flightsservice`, `webfrontend`: codice gia' fornito con il
   test, containerizzato cosi' com'e'.
-- `globalsearchservice`: **solo lo scheletro**. Espone gia' il contratto richiesto
-  dalla consegna (`GET /api/global-search?query=&offset=&limit=`, validazione della
-  query >= 3 caratteri, paginazione, forma della risposta), ha gia' pronti (ma non
-  usati) i client verso `airportsservice` (REST) e `flightsservice` (gRPC), ma
-  risponde sempre con dati statici. La logica di aggregazione/ricerca vera e propria
-  e' quella da implementare — vedi i TODO in
+- `globalsearchservice`: **lo scheletro dell'endpoint e' pronto**, con contratto
+  conforme alla consegna, client (REST/gRPC) verso le due fonti dati gia'
+  registrati (ma non ancora usati per interrogarle davvero), e una cache Redis
+  completa e funzionante davanti a tutto (vedi `CachingGlobalSearchService`,
+  sliding+scadenza assoluta, riuso dei risultati per sottostringa). L'unica cosa
+  che manca e' l'aggregazione reale sui dati di Airports/Flights — vedi i TODO in
   `src/GlobalSearchService/Services/MockGlobalSearchService.cs`.

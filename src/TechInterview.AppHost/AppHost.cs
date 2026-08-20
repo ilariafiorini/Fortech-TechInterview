@@ -1,4 +1,5 @@
 using Aspire.Hosting;
+using Aspire.Hosting.Docker;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
@@ -15,6 +16,9 @@ var airports = builder.AddProject<Projects.AirportsService>("airportsservice").W
 
 var flights = builder.AddProject<Projects.FlightsService>("flightsservice");
 
+// Cache Redis per la Global Search API (vedi CachingGlobalSearchService).
+var cache = builder.AddRedis("cache");
+
 // GlobalSearchService e' per ora un MOCKUP: espone gia' il contratto richiesto
 // dalla consegna ma risponde con dati statici. I riferimenti verso airports/flights
 // sono gia' cablati qui cosi' che, quando implementerai la ricerca reale, il servizio
@@ -23,7 +27,9 @@ var globalSearch = builder.AddProject<Projects.GlobalSearchService>("globalsearc
     .WithReference(airports)
     .WaitFor(airports)
     .WithReference(flights)
-    .WaitFor(flights);
+    .WaitFor(flights)
+    .WithReference(cache)
+    .WaitFor(cache);
 
 builder.AddProject<Projects.TechInterview_Web>("webfrontend")
     .WithExternalHttpEndpoints()
