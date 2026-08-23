@@ -1,86 +1,200 @@
-@page "/Search"
+@page "/search"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.WebUtilities
+@inject NavigationManager Nav
+@inject IHttpClientFactory ClientFactory
+
 <h3>Search</h3>
 
 <div class="mb-3">
-    <label for="searchKey" class="form-label">Chiave di ricerca</label>
+    <label for="searchKey" class="form-label">Chiave di ricerca (almeno 3 caratteri)</label>
     <input id="searchKey"
            class="form-control"
-           @bind="SearchKey"
-           @bind:event="oninput" />
+           @bind="_query"
+           @bind:event="oninput"
+           @onkeydown="OnKeyDown" />
 </div>
 
-<button class="btn btn-primary mb-3" @onclick="OnSearch">
+<button class="btn btn-primary mb-3" @onclick="OnSearchClicked" disabled="@(_query.Trim().Length < 3)">
     Cerca
 </button>
 
-@if (IsSearching)
+@if (_error is not null)
 {
-    <p>Ricerca in corso...</p>
+    <div class="alert alert-danger">@_error</div>
 }
-else if (Results is { Count: > 0 })
-{
-    <table class="table table-striped">
-        <thead>
-            <tr>
-                <th>#</th>
-                <th>Valore</th>
-            </tr>
-        </thead>
-        <tbody>
-            @foreach (var (item, index) in Results.Select((value, i) => (value, i + 1)))
-            {
+
+<div class="table-responsive mt-3">
+    @if (_isLoading)
+    {
+        <p><em>Ricerca in corso...</em></p>
+    }
+    else if (_results is { Count: > 0 })
+    {
+        <table class="table table-striped table-hover">
+            <thead>
                 <tr>
-                    <td>@index</td>
-                    <td>@item</td>
+                    <th>Tipo</th>
+                    <th>Id</th>
+                    <th>Descrizione</th>
                 </tr>
-            }
-        </tbody>
-    </table>
-}
-else if (HasSearched)
-{
-    <p>Nessun risultato trovato.</p>
-}
+            </thead>
+            <tbody>
+                @foreach (var item in _results)
+                {
+                    <tr>
+                        <td>@item.ResourceType</td>
+                        <td>
+                            <NavLink href="@DetailUrl(item)">@item.Id</NavLink>
+                        </td>
+                        <td>@item.Description</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+
+        <div class="d-flex justify-content-between mt-3">
+            <button class="btn btn-primary" @onclick="PreviousPage" disabled="@(_offset == 0)">Previous</button>
+            <button class="btn btn-primary" @onclick="NextPage" disabled="@(_offset + _limit >= TotalCount)">Next</button>
+        </div>
+
+        <p class="mt-2 text-muted">
+            Showing @_results.Count risultati (offset @_offset, limit @_limit) - totale @TotalCount
+        </p>
+    }
+    else if (_hasSearched)
+    {
+        <p>Nessun risultato trovato.</p>
+    }
+</div>
 
 @code {
-    // Testo inserito nel textbox
-    private string SearchKey { get; set; } = string.Empty;
+    // PROTOTIPO DI STUDIO (branch prototype/real-search): interroga la vera Global Search
+    // API invece dei dati finti di prima. Stesso pattern di paginazione previous/next usato
+    // da Airports.razor/Flights.razor. Ogni volta che si preme "Cerca" si riparte da
+    // offset=0 (nuova ricerca): navigare con Previous/Next mantiene invece la stessa query,
+    // quindi lato server ricade sulla cache della ricerca gia' cristallizzata invece di
+    // rifare tutto da capo (vedi docs/architecture.md).
 
-    // Risultati della ricerca
-    private List<string> Results { get; set; } = new();
+    private string _query = string.Empty;
+    private List<SearchResultDto>? _results;
 
-    // Flag per mostrare messaggi di stato
-    private bool IsSearching { get; set; }
-    private bool HasSearched { get; set; }
+    private int _offset;
+    private int _limit = 20;
+    private int TotalCount;
 
-    private async Task OnSearch()
+    private bool _isLoading;
+    private bool _hasSearched;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
     {
-        HasSearched = false;
-        IsSearching = true;
-        Results.Clear();
+        ReadQueryParams();
 
-        // Simula un'operazione asincrona (es. chiamata a un servizio/DB)
-        await Task.Delay(500);
-
-        // Logica di esempio: filtra da una lista fittizia
-        var data = new List<string>
+        if (_query.Trim().Length >= 3)
         {
-            "Apple",
-            "Banana",
-            "Cherry",
-            "Date",
-            "Grapes",
-            "Pineapple"
-        };
-
-        if (!string.IsNullOrWhiteSpace(SearchKey))
-        {
-            Results = data
-                .Where(x => x.Contains(SearchKey, StringComparison.OrdinalIgnoreCase))
-                .ToList();
+            await LoadResults();
         }
+    }
 
-        IsSearching = false;
-        HasSearched = true;
+    private void ReadQueryParams()
+    {
+        var uri = Nav.ToAbsoluteUri(Nav.Uri);
+        var query = QueryHelpers.ParseQuery(uri.Query);
+
+        if (query.TryGetValue("query", out var q))
+            _query = q.ToString();
+
+        if (query.TryGetValue("offset", out var offStr) && int.TryParse(offStr, out var off))
+            _offset = off;
+
+        if (query.TryGetValue("limit", out var limStr) && int.TryParse(limStr, out var lim))
+            _limit = lim;
+    }
+
+    private async Task OnKeyDown(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && _query.Trim().Length >= 3)
+        {
+            await OnSearchClicked();
+        }
+    }
+
+    private async Task OnSearchClicked()
+    {
+        _offset = 0;
+        UpdateUrl();
+        await LoadResults();
+    }
+
+    private async Task LoadResults()
+    {
+        _error = null;
+        _isLoading = true;
+        _hasSearched = true;
+        StateHasChanged();
+
+        try
+        {
+            var client = ClientFactory.CreateClient("globalsearch");
+            var url = $"/api/global-search?query={Uri.EscapeDataString(_query.Trim())}&offset={_offset}&limit={_limit}";
+            var response = await client.GetAsync(url);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadFromJsonAsync<SearchResponseDto>();
+                _results = body?.Items ?? new List<SearchResultDto>();
+                TotalCount = body?.Count ?? 0;
+            }
+            else
+            {
+                var problem = await response.Content.ReadAsStringAsync();
+                _error = $"Errore {(int)response.StatusCode}: {problem}";
+                _results = new List<SearchResultDto>();
+                TotalCount = 0;
+            }
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task NextPage()
+    {
+        _offset += _limit;
+        UpdateUrl();
+        await LoadResults();
+    }
+
+    private async Task PreviousPage()
+    {
+        _offset = Math.Max(0, _offset - _limit);
+        UpdateUrl();
+        await LoadResults();
+    }
+
+    private void UpdateUrl()
+    {
+        var url = $"/search?query={Uri.EscapeDataString(_query.Trim())}&offset={_offset}&limit={_limit}";
+        Nav.NavigateTo(url, replace: true);
+    }
+
+    private static string DetailUrl(SearchResultDto item) =>
+        item.ResourceType == "flight" ? $"/flights/{item.Id}" : $"/airports/{item.Id}";
+
+    public class SearchResultDto
+    {
+        public string Id { get; set; } = "";
+        public string ResourceType { get; set; } = "";
+        public string Description { get; set; } = "";
+    }
+
+    public class SearchResponseDto
+    {
+        public List<SearchResultDto> Items { get; set; } = new();
+        public int Offset { get; set; }
+        public int Limit { get; set; }
+        public int Count { get; set; }
     }
 }

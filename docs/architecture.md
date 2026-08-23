@@ -71,26 +71,28 @@ TechInterview/
 
 ### Da fare (il vero compito della consegna)
 
-- [ ] **Logica di ricerca reale in `GlobalSearchService`**: sostituire
-  `MockGlobalSearchService` con un'implementazione che interroghi davvero
-  `AirportsService` (REST) e `FlightsService` (gRPC), filtri sui campi richiesti e
-  applichi la paginazione in modo corretto.
+- [x] **Logica di ricerca reale in `GlobalSearchService`**: implementata come
+  PROTOTIPO DI STUDIO sul branch `prototype/real-search` (`RealGlobalSearchService`,
+  `AirportsSearchCache`, `FlightsSearchCache` — vedi la sezione dedicata in fondo a
+  questo file). Su `main` resta `MockGlobalSearchService`: la riscrittura a mano,
+  vera consegna dell'esercizio, resta da fare.
 - [ ] Decidere e documentare la strategia di paginazione (sulle fonti vs
   sull'aggregato) — vedi i TODO nel mockup per i trade-off, tenendo conto che
   `CachingGlobalSearchService` chiama il metodo con un `limit` molto ampio per
   ottenere l'insieme "completo" da cachare.
 - [ ] Allineare il filtro di rifinitura usato dalla cache (oggi su `Description`)
   agli stessi campi grezzi usati dalla ricerca reale, se necessario.
-- [ ] Collegare la pagina `TechInterview.Web/Components/Pages/Search.razor` (oggi
-  un placeholder con dati finti) alla vera Global Search API.
+- [x] Collegare la pagina `TechInterview.Web/Components/Pages/Search.razor` (oggi
+  un placeholder con dati finti) alla vera Global Search API — fatto anch'esso solo
+  sul branch `prototype/real-search`, stesso discorso del punto sopra.
 - [ ] Bonus facoltativi non ancora affrontati: test automatici (cartella `tests/`
   pronta ma vuota), logging strutturato applicativo.
-- [ ] Rendere configurabile l'ampiezza del fan-out con cui `SearchAsync` interroga
-  `FlightsService` (numero di chiamate `GetFlights` in parallelo necessarie a coprire
-  tutti i voli) invece di un valore fisso in codice — stesso pattern gia' usato per
-  `GlobalSearchCache` in `appsettings.json`. Utile perche' il valore ottimale dipende
-  dalle risorse assegnate a Docker Desktop e dalla macchina, quindi puo' avere senso
-  poterlo ritarare senza ricompilare — vedi il benchmark qui sotto.
+- [x] Rendere configurabile l'ampiezza del fan-out con cui `SearchAsync` interroga
+  `FlightsService` e `AirportsService` (numero di chiamate parallele necessarie a
+  coprire l'intero dataset di una fonte) invece di un valore fisso in codice — stesso
+  pattern gia' usato per `GlobalSearchCache` in `appsettings.json`. Fatto sul branch
+  `prototype/real-search` come `SearchFanOutOptions` / sezione `SearchFanOut` in
+  `appsettings.json` (default `PageLimit: 20`).
 - [ ] **Resilienza gRPC su FlightsService**: lo `AddStandardResilienceHandler()` di
   `TechInterview.ServiceDefaults` copre solo i fallimenti di trasporto (connessione
   rifiutata, timeout di rete), perche' decide se ritentare guardando lo status code
@@ -287,3 +289,56 @@ TechInterview/
     meccanismo piu' naturale (gia' costruito), mentre una cancellazione esplicita
     avrebbe senso solo per limitare attivamente la crescita della cache, a
     prescindere dal concetto di "ricerca precedente".
+
+## Prototipo di studio: branch `prototype/real-search`
+
+Su richiesta esplicita, questo branch (staccato da `main`, non pensato per essere
+mergiato cosi' com'e') contiene una implementazione completa della vera logica di
+ricerca, seguendo tutte le decisioni discusse e documentate in questo file. Serve da
+riferimento concreto per lo studio, non da consegna: l'idea e' riscrivere a mano la
+logica reale su `main`, usando questo codice come termine di paragone quando serve
+controllare come una decisione si traduce in codice.
+
+Cosa contiene, rispetto a `main`:
+
+- `Services/AirportsSearchCache.cs` (+ `IAirportsSearchCache.cs`): cache dedicata ad
+  Airports. Seeding lazy/auto-riparante della chiave `""` (l'intero superset), scelta
+  della sottostringa cacheata piu' lunga compatibile con la query richiesta, fallback su
+  `""` quando non c'e' nulla di piu' specifico, rinnovo della TTL sfruttando il
+  comportamento nativo di `IDistributedCache` su Redis (una lettura andata a buon fine
+  rinnova gia' la scadenza sliding della entry letta, quindi "rinnova solo la entry
+  sorgente usata" non richiede codice dedicato).
+- `Services/FlightsSearchCache.cs` (+ `IFlightsSearchCache.cs`): cache dedicata a
+  Flights. Cache-aside pura chiavata sulla query: su un hit si riusa il risultato gia'
+  cristallizzato (navigazione della stessa ricerca); su un miss si rifa' per intero lo
+  sweep parallelo su `FlightsService` e si cachea solo l'elenco filtrato, mai il superset
+  grezzo.
+- `Services/RealGlobalSearchService.cs`: aggrega le due cache sopra, ordine
+  Airports-poi-Flights (vedi il prototipo di risposta in `README.md`), paginazione con
+  `Skip`/`Take` sull'elenco concatenato — un offset oltre la fine restituisce
+  naturalmente un elenco vuoto, nessun errore dedicato.
+- `Services/SearchFanOutOptions.cs`: `PageLimit` (default 20) configurabile da
+  `appsettings.json`, sezione `SearchFanOut`, usato da entrambe le cache per il fan-out
+  verso le rispettive fonti.
+- `Models/AirportDto.cs`, `Models/AirportsPageResponse.cs`, `Models/FlightDto.cs`: DTO
+  locali per non serializzare in cache ne' i tipi generati da Protobuf ne' i modelli
+  dei progetti sorgente (`GlobalSearchService` non li referenzia direttamente).
+- `Program.cs` (GlobalSearchService): registra le due cache e sostituisce
+  `MockGlobalSearchService` con `RealGlobalSearchService` come implementazione avvolta da
+  `CachingGlobalSearchService` — quest'ultimo resta invariato, esattamente come previsto.
+- `Components/Pages/Search.razor` (TechInterview.Web): riscritta per interrogare
+  `/api/global-search` sul serio, con paginazione previous/next sullo stesso pattern di
+  `Airports.razor`/`Flights.razor`, e link alle pagine di dettaglio esistenti
+  (`/airports/{id}`, `/flights/{id}`) in base a `resourceType`.
+
+Semplificazioni consapevoli, non affrontate in questo prototipo:
+
+- Nessun lock distribuito contro il "cache stampede" su una chiave fredda richiesta da
+  piu' utenti nello stesso istante (discusso in chat: probabilmente non necessario alla
+  scala di questo esercizio, ma e' un limite noto, non un errore).
+- Il filtro di rifinitura di `CachingGlobalSearchService` sul superset cacheato lavora
+  ancora solo sul campo `Description` (vedi il TODO gia' presente in quel file): non
+  l'ho toccato, resta un affinamento possibile ma fuori dallo scopo di questo prototipo.
+- Non e' stato possibile validare la compilazione in modo automatico (nessun SDK .NET
+  disponibile nell'ambiente in cui e' stato scritto questo codice): va verificata con
+  `dotnet build` sulla tua macchina prima di fidarsene.

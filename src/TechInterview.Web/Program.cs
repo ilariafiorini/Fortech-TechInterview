@@ -23,6 +23,13 @@ builder.Services.AddHttpClient("airports", client =>
     client.BaseAddress = new Uri("https+http://airportsservice");
 });
 
+// Client REST verso GlobalSearchService — usato da Search.razor (branch
+// prototype/real-search: vedi docs/architecture.md).
+builder.Services.AddHttpClient("globalsearch", client =>
+{
+    client.BaseAddress = new Uri("https+http://globalsearchservice");
+});
+
 var app = builder.Build();
 
 if (!app.Environment.IsDevelopment())
