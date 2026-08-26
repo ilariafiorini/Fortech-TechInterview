@@ -330,6 +330,24 @@ Cosa contiene, rispetto a `main`:
   `/api/global-search` sul serio, con paginazione previous/next sullo stesso pattern di
   `Airports.razor`/`Flights.razor`, e link alle pagine di dettaglio esistenti
   (`/airports/{id}`, `/flights/{id}`) in base a `resourceType`.
+- `tests/GlobalSearchService.Tests/`: primi test unitari (xUnit + Moq) sulla logica
+  isolabile — `AirportsSearchCache`, `FlightsSearchCache`, `RealGlobalSearchService` —
+  con HTTP/gRPC/Redis sostituiti da doppi di test in `TestDoubles/` (un finto
+  `HttpMessageHandler` per Airports, un `IConnectionMultiplexer` mockato per il set
+  known-keys, un `IDistributedCache` in memoria, un client gRPC mockato secondo il
+  pattern documentato da Microsoft), quindi eseguibili senza Docker. Copre il seeding
+  lazy/self-healing di Airports, il cache-aside puro di Flights, e le tre decisioni di
+  aggregazione (ordine Airports-poi-Flights, count come totale, offset oltre la fine).
+- `tests/GlobalSearchService.IntegrationTests/`: test "dal vivo" contro la stack
+  Docker Compose realmente avviata (nessun mock, nessun riferimento ai tipi interni:
+  black-box sul contratto HTTP), progetto separato e volutamente non referenziato in
+  `TechInterview.sln` cosi' un `dotnet test` normale non lo tocca mai per sbaglio.
+  Copre cose che gli unit test, mockando Redis/HTTP/gRPC, non possono vedere: che lo
+  stack si assembli davvero (health check), la validazione end-to-end, l'ordinamento
+  e la paginazione oltre la fine sui dati reali, e soprattutto che la cache Redis
+  produca un guadagno di velocita' misurabile sulla stessa query ripetuta. Vedi il
+  README del progetto per il dettaglio e per come i test evitano di assumere un
+  contenuto preciso dei dati mock (Flights li rigenera casuali ad ogni chiamata).
 
 Semplificazioni consapevoli, non affrontate in questo prototipo:
 
@@ -339,6 +357,7 @@ Semplificazioni consapevoli, non affrontate in questo prototipo:
 - Il filtro di rifinitura di `CachingGlobalSearchService` sul superset cacheato lavora
   ancora solo sul campo `Description` (vedi il TODO gia' presente in quel file): non
   l'ho toccato, resta un affinamento possibile ma fuori dallo scopo di questo prototipo.
-- Non e' stato possibile validare la compilazione in modo automatico (nessun SDK .NET
-  disponibile nell'ambiente in cui e' stato scritto questo codice): va verificata con
-  `dotnet build` sulla tua macchina prima di fidarsene.
+- Non e' stato possibile validare la compilazione ne' l'esecuzione dei nuovi test in
+  modo automatico (nessun SDK .NET disponibile nell'ambiente in cui e' stato scritto
+  questo codice): vanno verificate con `dotnet build` e `dotnet test` sulla tua
+  macchina prima di fidartene.
