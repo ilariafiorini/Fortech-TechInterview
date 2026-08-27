@@ -116,6 +116,24 @@ services:
       start_period: 15s
     networks: [techinterview]
 
+  # UI web (tipo Swagger, ma per gRPC) per esplorare FlightsService via reflection gRPC,
+  # senza installare nulla in locale — vedi "Come esplorare e testare FlightsService
+  # (gRPC)" in docker/README.md. "-connect-fail-fast=false" evita che il container si
+  # arresti subito se flightsservice non e' ancora pronto: grpcui prova a connettersi
+  # una sola volta all'avvio, per design (da qui anche "restart: on-failure", per
+  # farlo comunque ripartire se succede).
+  grpcui:
+    image: fullstorydev/grpcui:v1.5.2
+    container_name: grpcui
+    command: ["-plaintext", "-connect-fail-fast=false", "flightsservice:8080"]
+    ports:
+      - "${GRPCUI_PORT:-8085}:8080"
+    depends_on:
+      flightsservice:
+        condition: service_healthy
+    restart: on-failure
+    networks: [techinterview]
+
   webfrontend:
     build:
       context: ..

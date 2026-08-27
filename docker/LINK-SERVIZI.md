@@ -11,21 +11,26 @@ Riferimento veloce a tutte le interfacce web esposte da `docker compose up --bui
 | globalsearchservice    | http://localhost:8083/scalar          | Scalar UI — Global Search API, **attualmente un mockup** (anche su `/`) |
 | aspire-dashboard       | http://localhost:18888                | Dashboard OpenTelemetry: log, tracce e metriche di tutti i servizi |
 | redis-commander        | http://localhost:8084                 | UI web per ispezionare a mano le chiavi cacheate in Redis      |
+| grpcui                 | http://localhost:8085                 | UI web per esplorare FlightsService via gRPC reflection (dockerizzato, nessuna installazione) |
 | flightsservice         | *nessuna UI web di default*           | API puramente gRPC — vedi sotto                                |
 | redis                  | *nessuna UI web*                      | Protocollo Redis puro (`localhost:6379`); usa redis-commander sopra, oppure `redis-cli` |
 
 ## FlightsService (gRPC)
 
-Non essendo REST, non ha una pagina web fissa da aprire. Con l'ambiente Docker avviato,
-apri un'interfaccia interattiva al volo (richiede la reflection gRPC, già attiva in
-Development — vedi `docker/README.md`):
+Non essendo REST, non ha una pagina web fissa da aprire — ma con l'ambiente Docker
+avviato non serve installare nulla: apri direttamente **http://localhost:8085**, la UI
+del container `grpcui` gia' incluso in `docker-compose.yml`, gia' puntato su
+`flightsservice` (richiede la reflection gRPC, gia' attiva in Development — vedi
+`docker/README.md`).
+
+Se preferisci grpcui installato in locale invece che via Docker:
 
 ```
 grpcui -plaintext localhost:8082
 ```
 
 Il comando stampa un URL locale generato al momento (es. `http://127.0.0.1:xxxxx/`):
-aprilo nel browser per il form interattivo. In alternativa, da riga di comando:
+aprilo nel browser per lo stesso form interattivo. In alternativa, da riga di comando:
 
 ```
 grpcurl -plaintext localhost:8082 list
