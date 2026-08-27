@@ -1,0 +1,102 @@
+@page "/search/airports"
+@rendermode InteractiveServer
+@using TechInterview.Web.Components.Shared
+@inject NavigationManager Nav
+@inject IHttpClientFactory ClientFactory
+
+<h3>Search — Airports</h3>
+
+@if (!_state.HasQuery)
+{
+    <p>Nessuna ricerca in corso. <NavLink href="@SearchNavigation.SearchPath">Torna alla pagina di ricerca</NavLink>.</p>
+}
+else
+{
+    @if (_error is not null)
+    {
+        <div class="alert alert-danger">@_error</div>
+    }
+
+    <SearchResultsTable
+        Items="_results"
+        Offset="_state.AirportsOffset"
+        Limit="_state.Limit"
+        TotalCount="_totalCount"
+        IsLoading="_isLoading"
+        HasSearched="true"
+        ShowResourceTypeColumn="false"
+        ReturnUrl="@SearchNavigation.BuildUrl(SearchNavigation.AirportsPath, _state)"
+        Query="@_state.Query"
+        OnPreviousClicked="PreviousPage"
+        OnNextClicked="NextPage" />
+}
+
+@code {
+    // PROTOTIPO DI STUDIO (branch prototype/real-search): vista "Airports" — usa
+    // resourceType=airport (vedi GlobalSearchController.cs), quindi paginazione e count
+    // reali sul solo sottoinsieme aeroporti, non su quello globale. L'offset di questa
+    // pagina e' AirportsOffset; gli altri due viaggiano intatti attraverso di essa (vedi
+    // SearchNavigation.cs).
+
+    private SearchNavigation.State _state = new(string.Empty, 20, 0, 0, 0);
+    private List<SearchResultDto>? _results;
+    private int _totalCount;
+    private bool _isLoading;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _state = SearchNavigation.ReadFrom(Nav);
+
+        if (_state.HasQuery)
+        {
+            await LoadResults();
+        }
+    }
+
+    private async Task LoadResults()
+    {
+        _error = null;
+        _isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            var client = ClientFactory.CreateClient("globalsearch");
+            var url = $"/api/global-search?query={Uri.EscapeDataString(_state.Query.Trim())}&offset={_state.AirportsOffset}&limit={_state.Limit}&resourceType=airport";
+            var response = await client.GetAsync(url);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadFromJsonAsync<SearchResponseDto>();
+                _results = body?.Items ?? new List<SearchResultDto>();
+                _totalCount = body?.Count ?? 0;
+            }
+            else
+            {
+                var problem = await response.Content.ReadAsStringAsync();
+                _error = $"Errore {(int)response.StatusCode}: {problem}";
+                _results = new List<SearchResultDto>();
+                _totalCount = 0;
+            }
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task NextPage()
+    {
+        _state = _state with { AirportsOffset = _state.AirportsOffset + _state.Limit };
+        Nav.NavigateTo(SearchNavigation.BuildUrl(SearchNavigation.AirportsPath, _state), replace: true);
+        await LoadResults();
+    }
+
+    private async Task PreviousPage()
+    {
+        _state = _state with { AirportsOffset = Math.Max(0, _state.AirportsOffset - _state.Limit) };
+        Nav.NavigateTo(SearchNavigation.BuildUrl(SearchNavigation.AirportsPath, _state), replace: true);
+        await LoadResults();
+    }
+}

@@ -34,8 +34,9 @@ namespace GlobalSearchService.Services;
 /// </summary>
 public class MockGlobalSearchService : IGlobalSearchService
 {
-    public Task<GlobalSearchResponse> SearchAsync(string query, int offset, int limit, CancellationToken cancellationToken)
+    public Task<GlobalSearchResponse> SearchAsync(string query, int offset, int limit, string? resourceType, CancellationToken cancellationToken)
     {
+        // resourceType ignorato: questo mock storico restituisce sempre gli stessi 2 elementi.
         var mockItems = new List<SearchResultItem>
         {
             new() { Id = "MXP", ResourceType = "airport", Description = "MXP - Malpensa (Italy)" },

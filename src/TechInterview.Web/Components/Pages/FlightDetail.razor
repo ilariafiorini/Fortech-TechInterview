@@ -1,6 +1,8 @@
 ﻿@page "/flights/{Id}"
 @rendermode InteractiveServer
+@using Microsoft.AspNetCore.WebUtilities
 @inject NavigationManager Nav
+@inject IHttpClientFactory ClientFactory
 @inject FlightsService.Grpc.Flights.FlightsClient FlightsClient
 
 <h3>Flight Detail</h3>
@@ -38,23 +40,111 @@ else
 @code {
     [Parameter] public string? Id { get; set; }
 
-    private FlightsService.Grpc.Flight? _flight;
+    private FlightViewModel? _flight;
+    private string? _returnUrl;
+    private string? _query;
 
     protected override async Task OnParametersSetAsync()
     {
-        if (!string.IsNullOrWhiteSpace(Id))
+        ReadNavigationContext();
+
+        if (string.IsNullOrWhiteSpace(Id))
         {
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_query))
+        {
+            // Si arriva qui da una ricerca (query di provenienza nota): si rilegge la riga
+            // dalla stessa cache che ha prodotto la lista, invece di interrogare di nuovo
+            // FlightsService dal vivo — vedi GlobalSearchController.GetCachedFlightById e
+            // la discussione in docs/architecture.md sul perche' serva proprio per Flights.
+            _flight = await TryGetFromSearchCacheAsync();
+        }
+
+        if (_flight is null)
+        {
+            // Nessun contesto di ricerca (accesso diretto/da preferiti), oppure quella query
+            // non conteneva questo id nella sua cache (es. TTL scaduta nel frattempo): si
+            // ricade sulla chiamata dal vivo a FlightsService, soggetta alla nota
+            // volatilita' del mock (rigenera dati casuali ad ogni chiamata gRPC) — esattamente
+            // il comportamento di questa pagina prima di questa estensione.
             var response = await FlightsClient.GetFlightByIdAsync(new()
             {
                 Id = Id
             });
 
-            _flight = response.Flight;
+            _flight = FlightViewModel.FromGrpc(response.Flight);
         }
     }
 
+    private async Task<FlightViewModel?> TryGetFromSearchCacheAsync()
+    {
+        var client = ClientFactory.CreateClient("globalsearch");
+        var url = $"/api/global-search/flights/{Id}?query={Uri.EscapeDataString(_query!.Trim())}";
+        var response = await client.GetAsync(url);
+
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<FlightViewModel>()
+            : null;
+    }
+
+    private void ReadNavigationContext()
+    {
+        var uri = Nav.ToAbsoluteUri(Nav.Uri);
+        var parsedQuery = QueryHelpers.ParseQuery(uri.Query);
+
+        if (parsedQuery.TryGetValue("returnUrl", out var ru) && IsSafeLocalUrl(ru.ToString()))
+        {
+            _returnUrl = ru.ToString();
+        }
+
+        if (parsedQuery.TryGetValue("query", out var q) && !string.IsNullOrWhiteSpace(q.ToString()))
+        {
+            _query = q.ToString();
+        }
+    }
+
+    // Solo path locali (mai un URL assoluto o protocol-relative "//host/..."): evita che un
+    // returnUrl malevolo nella query string faccia da redirect verso un altro sito.
+    private static bool IsSafeLocalUrl(string? url) =>
+        !string.IsNullOrWhiteSpace(url) && url.StartsWith('/') && !url.StartsWith("//");
+
     private void GoBack()
     {
-        Nav.NavigateTo("/flights");
+        // Se si arriva qui da una delle pagine di ricerca (returnUrl valorizzato), si torna
+        // esattamente alla stessa scheda e alla stessa pagina di risultati da cui si e'
+        // partiti, invece che sempre alla lista Flights semplice — vedi
+        // SearchAll/SearchAirports/SearchFlights.razor.
+        Nav.NavigateTo(_returnUrl ?? "/flights");
+    }
+
+    // Copia locale (POCO) dei campi mostrati dal dettaglio: alimentata sia dalla riga
+    // cacheata (GlobalSearchController.GetCachedFlightById, stesso shape di
+    // GlobalSearchService.Models.FlightDto) sia, in fallback, dalla risposta gRPC dal vivo
+    // di FlightsService — cosi' il markup sopra non deve sapere da quale delle due fonti
+    // arrivano i dati.
+    private class FlightViewModel
+    {
+        public string? Id { get; set; }
+        public string? AircraftNumber { get; set; }
+        public string? DepartureAirportCode { get; set; }
+        public string? ArrivalAirportCode { get; set; }
+        public string? DepartureCity { get; set; }
+        public string? ArrivalCity { get; set; }
+        public string? DepartureTime { get; set; }
+        public string? ArrivalTime { get; set; }
+
+        public static FlightViewModel FromGrpc(FlightsService.Grpc.Flight flight) => new()
+        {
+            Id = flight.Id,
+            AircraftNumber = flight.AircraftNumber,
+            DepartureAirportCode = flight.DepartureAirportCode,
+            ArrivalAirportCode = flight.ArrivalAirportCode,
+            DepartureCity = flight.DepartureCity,
+            ArrivalCity = flight.ArrivalCity,
+            DepartureTime = flight.DepartureTime,
+            ArrivalTime = flight.ArrivalTime
+        };
     }
 }

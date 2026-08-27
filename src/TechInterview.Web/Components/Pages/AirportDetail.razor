@@ -1,5 +1,6 @@
 ﻿@page "/airports/{Id}"
 @rendermode InteractiveServer
+@using Microsoft.AspNetCore.WebUtilities
 @inject NavigationManager Nav
 @inject IHttpClientFactory ClientFactory
 
@@ -42,21 +43,81 @@ else
     [Parameter] public string? Id { get; set; }
 
     private AirportDto? _airport;
+    private string? _returnUrl;
+    private string? _query;
 
     protected override async Task OnParametersSetAsync()
     {
-        if (!string.IsNullOrWhiteSpace(Id))
+        ReadNavigationContext();
+
+        if (string.IsNullOrWhiteSpace(Id))
         {
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_query))
+        {
+            // Si arriva qui da una ricerca (query di provenienza nota): si rilegge la riga
+            // dalla stessa cache che ha prodotto la lista, invece di interrogare di nuovo
+            // AirportsService dal vivo — vedi GlobalSearchController.GetCachedAirportById.
+            // Non e' strettamente necessario quanto per Flights (qui AirportsService
+            // sembra tenere i dati stabili), ma dall'esterno, senza guardarne il codice
+            // sorgente, non lo si puo' dare per garantito a tempo indeterminato — vedi
+            // docs/architecture.md.
+            _airport = await TryGetFromSearchCacheAsync();
+        }
+
+        if (_airport is null)
+        {
+            // Nessun contesto di ricerca (accesso diretto/da preferiti), oppure quella query
+            // non conteneva questo id nella sua cache: si ricade sulla chiamata dal vivo ad
+            // AirportsService, esattamente il comportamento di questa pagina prima di
+            // questa estensione.
             var client = ClientFactory.CreateClient("airports");
 
             _airport = await client.GetFromJsonAsync<AirportDto>($"/api/airports/{Id}");
         }
     }
 
+    private async Task<AirportDto?> TryGetFromSearchCacheAsync()
+    {
+        var client = ClientFactory.CreateClient("globalsearch");
+        var url = $"/api/global-search/airports/{Id}?query={Uri.EscapeDataString(_query!.Trim())}";
+        var response = await client.GetAsync(url);
+
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<AirportDto>()
+            : null;
+    }
+
+    private void ReadNavigationContext()
+    {
+        var uri = Nav.ToAbsoluteUri(Nav.Uri);
+        var parsedQuery = QueryHelpers.ParseQuery(uri.Query);
+
+        if (parsedQuery.TryGetValue("returnUrl", out var ru) && IsSafeLocalUrl(ru.ToString()))
+        {
+            _returnUrl = ru.ToString();
+        }
+
+        if (parsedQuery.TryGetValue("query", out var q) && !string.IsNullOrWhiteSpace(q.ToString()))
+        {
+            _query = q.ToString();
+        }
+    }
+
+    // Solo path locali (mai un URL assoluto o protocol-relative "//host/..."): evita che un
+    // returnUrl malevolo nella query string faccia da redirect verso un altro sito.
+    private static bool IsSafeLocalUrl(string? url) =>
+        !string.IsNullOrWhiteSpace(url) && url.StartsWith('/') && !url.StartsWith("//");
+
     private void GoBack()
     {
-        // Torna semplicemente alla lista (offset/limit saranno ripristinati da query param)
-        Nav.NavigateTo("/airports");
+        // Se si arriva qui da una delle pagine di ricerca (returnUrl valorizzato), si torna
+        // esattamente alla stessa scheda e alla stessa pagina di risultati da cui si e'
+        // partiti, invece che sempre alla lista Airports semplice — vedi
+        // SearchAll/SearchAirports/SearchFlights.razor.
+        Nav.NavigateTo(_returnUrl ?? "/airports");
     }
 
     public class AirportDto

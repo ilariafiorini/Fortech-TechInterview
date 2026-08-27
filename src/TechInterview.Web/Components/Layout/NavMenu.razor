@@ -1,4 +1,10 @@
-﻿<div class="top-row ps-3 navbar navbar-dark">
+﻿@rendermode InteractiveServer
+@using TechInterview.Web.Components.Shared
+@using Microsoft.AspNetCore.WebUtilities
+@implements IDisposable
+@inject NavigationManager Nav
+
+<div class="top-row ps-3 navbar navbar-dark">
     <div class="container-fluid">
         <a class="navbar-brand" href="">TechInterview</a>
     </div>
@@ -9,27 +15,208 @@
 <div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
     <nav class="nav flex-column">
         <div class="nav-item px-3">
-            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
+            <a class="@NavClass(ActiveSection.Home)" href="">
                 <span class="bi bi-house-door-fill" aria-hidden="true"></span> Home
-            </NavLink>
-        </div>
-        
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="search">
-                <span class="bi bi-geo-alt" aria-hidden="true"></span> Search
-            </NavLink>
-        </div>
-        
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="airports">
-                <span class="bi bi-geo-alt" aria-hidden="true"></span> Airports
-            </NavLink>
+            </a>
         </div>
 
         <div class="nav-item px-3">
-            <NavLink class="nav-link" href="flights">
+            <a class="@(IsSearchAreaActive ? "nav-link active" : "nav-link")" href="@SearchHref">
+                <span class="bi bi-geo-alt" aria-hidden="true"></span> Search
+            </a>
+        </div>
+
+        @if (_searchState.HasQuery)
+        {
+            <div class="nav-item px-3 ms-3">
+                <a class="@NavClass(ActiveSection.SearchAll)" href="@AllHref">
+                    <span class="bi bi-list-ul" aria-hidden="true"></span> All Results
+                </a>
+            </div>
+
+            <div class="nav-item px-3 ms-3">
+                <a class="@NavClass(ActiveSection.SearchAirports)" href="@AirportsHref">
+                    <span class="bi bi-geo-alt" aria-hidden="true"></span> Airport Results
+                </a>
+            </div>
+
+            <div class="nav-item px-3 ms-3">
+                <a class="@NavClass(ActiveSection.SearchFlights)" href="@FlightsHref">
+                    <span class="bi bi-airplane" aria-hidden="true"></span> Flight Results
+                </a>
+            </div>
+        }
+
+        <div class="nav-item px-3">
+            <a class="@NavClass(ActiveSection.AirportsBrowse)" href="airports">
+                <span class="bi bi-geo-alt" aria-hidden="true"></span> Airports
+            </a>
+        </div>
+
+        <div class="nav-item px-3">
+            <a class="@NavClass(ActiveSection.FlightsBrowse)" href="flights">
                 <span class="bi bi-airplane" aria-hidden="true"></span> Flights
-            </NavLink>
+            </a>
         </div>
     </nav>
 </div>
+
+@code {
+    // Rende la barra laterale reattiva alla query di ricerca corrente: i tre sotto-link
+    // All/Airports/Flights compaiono solo quando esiste una ricerca "attiva" (>= 3 caratteri)
+    // e puntano sempre alla stessa query + al proprio ultimo offset, cosi' passando da una
+    // scheda all'altra si ritorna sempre all'ultima pagina vista — vedi SearchNavigation.cs.
+    //
+    // NavMenu vive nel layout (MainLayout.razor) e non riceve automaticamente un nuovo
+    // rendering quando l'utente naviga da una pagina all'altra tramite la navigazione
+    // "enhanced" di Blazor: per questo e' marcato @rendermode InteractiveServer (cosi' resta
+    // un componente interattivo vivo per tutta la sessione, invece di essere ri-renderizzato
+    // via SSR ad ogni navigazione) e si iscrive esplicitamente a NavigationManager.LocationChanged
+    // per ricalcolare lo stato ad ogni cambio di URL.
+    //
+    // L'evidenziazione della voce attiva NON usa <NavLink>: il matching automatico per
+    // prefisso di NavLink accenderebbe sempre "Airports"/"Flights" (i bottoni originali,
+    // non legati alla ricerca) anche quando la pagina di dettaglio /airports/{id} o
+    // /flights/{id} e' stata raggiunta da una ricerca, perche' quell'URL inizia comunque
+    // con "airports"/"flights" — indipendentemente da dove si e' arrivati. La sezione
+    // "vera" da evidenziare dipende invece dal returnUrl della pagina di dettaglio (se
+    // presente), non dal solo prefisso dell'URL corrente: da qui il calcolo esplicito in
+    // ComputeActiveSection/ResolveDetailSection sotto, con classe CSS applicata a mano
+    // (la stessa "active" che NavLink avrebbe applicato — vedi NavMenu.razor.css).
+    private enum ActiveSection
+    {
+        None,
+        Home,
+        SearchForm,
+        SearchAll,
+        SearchAirports,
+        SearchFlights,
+        AirportsBrowse,
+        FlightsBrowse
+    }
+
+    private SearchNavigation.State _searchState = new(string.Empty, 20, 0, 0, 0);
+    private ActiveSection _activeSection = ActiveSection.Home;
+
+    private bool IsSearchAreaActive =>
+        _activeSection is ActiveSection.SearchForm or ActiveSection.SearchAll
+            or ActiveSection.SearchAirports or ActiveSection.SearchFlights;
+
+    private string NavClass(ActiveSection section) =>
+        _activeSection == section ? "nav-link active" : "nav-link";
+
+    private string SearchHref => SearchNavigation.BuildUrl(SearchNavigation.SearchPath, _searchState);
+    private string AllHref => SearchNavigation.BuildUrl(SearchNavigation.AllPath, _searchState);
+    private string AirportsHref => SearchNavigation.BuildUrl(SearchNavigation.AirportsPath, _searchState);
+    private string FlightsHref => SearchNavigation.BuildUrl(SearchNavigation.FlightsPath, _searchState);
+
+    protected override void OnInitialized()
+    {
+        UpdateState();
+        Nav.LocationChanged += OnLocationChanged;
+    }
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        UpdateState();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void UpdateState()
+    {
+        _searchState = SearchNavigation.ReadFrom(Nav);
+        _activeSection = ComputeActiveSection();
+    }
+
+    private ActiveSection ComputeActiveSection()
+    {
+        var uri = Nav.ToAbsoluteUri(Nav.Uri);
+        var path = uri.AbsolutePath.TrimEnd('/');
+
+        if (path.Length == 0)
+        {
+            return ActiveSection.Home;
+        }
+
+        if (string.Equals(path, "/search", StringComparison.OrdinalIgnoreCase))
+        {
+            return ActiveSection.SearchForm;
+        }
+
+        if (string.Equals(path, "/search/all", StringComparison.OrdinalIgnoreCase))
+        {
+            return ActiveSection.SearchAll;
+        }
+
+        if (string.Equals(path, "/search/airports", StringComparison.OrdinalIgnoreCase))
+        {
+            return ActiveSection.SearchAirports;
+        }
+
+        if (string.Equals(path, "/search/flights", StringComparison.OrdinalIgnoreCase))
+        {
+            return ActiveSection.SearchFlights;
+        }
+
+        if (string.Equals(path, "/airports", StringComparison.OrdinalIgnoreCase))
+        {
+            return ActiveSection.AirportsBrowse;
+        }
+
+        if (string.Equals(path, "/flights", StringComparison.OrdinalIgnoreCase))
+        {
+            return ActiveSection.FlightsBrowse;
+        }
+
+        if (path.StartsWith("/airports/", StringComparison.OrdinalIgnoreCase))
+        {
+            return ResolveDetailSection(uri, fallback: ActiveSection.AirportsBrowse);
+        }
+
+        if (path.StartsWith("/flights/", StringComparison.OrdinalIgnoreCase))
+        {
+            return ResolveDetailSection(uri, fallback: ActiveSection.FlightsBrowse);
+        }
+
+        return ActiveSection.None;
+    }
+
+    // Una pagina di dettaglio (/airports/{id} o /flights/{id}) non ha di per se' una
+    // "sezione" della sidebar: dipende da dove si e' arrivati. Se porta con se' un
+    // returnUrl valido che punta a una delle tre pagine di risultati di ricerca, la
+    // sezione evidenziata e' quella (cosi' aprire un dettaglio da una ricerca accende il
+    // sottopulsante giusto, non il bottone Airports/Flights "semplice"); altrimenti si
+    // ricade sul fallback passato (la navigazione diretta/da preferiti, o quella della
+    // lista semplice esistente, si comporta come prima di questa estensione).
+    private static ActiveSection ResolveDetailSection(Uri uri, ActiveSection fallback)
+    {
+        var parsedQuery = QueryHelpers.ParseQuery(uri.Query);
+        if (!parsedQuery.TryGetValue("returnUrl", out var ru))
+        {
+            return fallback;
+        }
+
+        var returnUrl = ru.ToString();
+        if (string.IsNullOrWhiteSpace(returnUrl) || !returnUrl.StartsWith('/') || returnUrl.StartsWith("//"))
+        {
+            return fallback;
+        }
+
+        // Il returnUrl e' un path + query string (es. "/search/airports?query=...&..."):
+        // basta il path per capire quale scheda l'ha generato.
+        var returnPath = returnUrl.Split('?', 2)[0].TrimEnd('/').ToLowerInvariant();
+
+        return returnPath switch
+        {
+            "/search/all" => ActiveSection.SearchAll,
+            "/search/airports" => ActiveSection.SearchAirports,
+            "/search/flights" => ActiveSection.SearchFlights,
+            _ => fallback
+        };
+    }
+
+    public void Dispose()
+    {
+        Nav.LocationChanged -= OnLocationChanged;
+    }
+}

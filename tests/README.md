@@ -6,8 +6,10 @@ Un progetto xUnit per servizio, con HTTP/gRPC/Redis sostituiti da doppi di test 
 Docker richiesto, girano con un normale `dotnet test`:
 
 - `GlobalSearchService.Tests` — creato (branch `prototype/real-search`). Copre la logica
-  isolabile (`AirportsSearchCache`, `FlightsSearchCache`, `RealGlobalSearchService`). Vedi
-  la sezione "Prototipo di studio" in `docs/architecture.md` per il dettaglio.
+  isolabile (`AirportsSearchCache`, `FlightsSearchCache`, `RealGlobalSearchService`,
+  `CachingGlobalSearchService` — inclusa la separazione per bucket/resourceType — e le
+  due azioni di `GlobalSearchController` che leggono il dettaglio dalla cache di ricerca).
+  Vedi la sezione "Prototipo di studio" in `docs/architecture.md` per il dettaglio.
 - `AirportsService.Tests` — non ancora creato.
 - `FlightsService.Tests` — non ancora creato.
 

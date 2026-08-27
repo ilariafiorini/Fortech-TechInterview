@@ -15,6 +15,12 @@ namespace GlobalSearchService.Services;
 /// fine dei risultati non e' un errore: restituisce semplicemente items vuoto e count sul
 /// totale reale (vedi "Paginazione oltre la fine dei risultati" in docs/architecture.md) —
 /// e' il comportamento naturale di Skip/Take, nessun codice speciale necessario.
+///
+/// <paramref name="resourceType"/> (null/"airport"/"flight", validato a monte dal
+/// controller) permette di limitarsi a una sola fonte — usato dalle schede Voli/Aeroporti
+/// della UI (vedi Search.razor). Quando una fonte e' esclusa, il suo fetch viene saltato
+/// del tutto (non solo filtrato a valle): niente chiamata inutile ad Airports/FlightsService
+/// per dati che verrebbero comunque scartati.
 /// </summary>
 public class RealGlobalSearchService : IGlobalSearchService
 {
@@ -27,15 +33,24 @@ public class RealGlobalSearchService : IGlobalSearchService
         _flightsCache = flightsCache;
     }
 
-    public async Task<GlobalSearchResponse> SearchAsync(string query, int offset, int limit, CancellationToken cancellationToken)
+    public async Task<GlobalSearchResponse> SearchAsync(string query, int offset, int limit, string? resourceType, CancellationToken cancellationToken)
     {
         // Difensivo: ci si aspetta di ricevere gia' una query normalizzata (trim+lowercase)
         // da CachingGlobalSearchService, ma normalizzare di nuovo qui e' innocuo e rende
         // questa classe corretta anche se richiamata in altri modi in futuro.
         var normalizedQuery = query.Trim().ToLowerInvariant();
 
-        var airportsTask = _airportsCache.GetMatchesAsync(normalizedQuery, cancellationToken);
-        var flightsTask = _flightsCache.GetMatchesAsync(normalizedQuery, cancellationToken);
+        var includeAirports = resourceType is null or "airport";
+        var includeFlights = resourceType is null or "flight";
+
+        var airportsTask = includeAirports
+            ? _airportsCache.GetMatchesAsync(normalizedQuery, cancellationToken)
+            : Task.FromResult<IReadOnlyList<AirportDto>>(Array.Empty<AirportDto>());
+
+        var flightsTask = includeFlights
+            ? _flightsCache.GetMatchesAsync(normalizedQuery, cancellationToken)
+            : Task.FromResult<IReadOnlyList<FlightDto>>(Array.Empty<FlightDto>());
+
         await Task.WhenAll(airportsTask, flightsTask);
 
         var items = airportsTask.Result.Select(ProjectAirport)

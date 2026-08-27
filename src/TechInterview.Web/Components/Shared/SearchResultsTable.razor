@@ -1,0 +1,93 @@
+@*
+    Tabella + paginazione dei risultati di ricerca, condivisa dalle tre schede di
+    Search.razor (Globale/Voli/Aeroporti): stesso identico markup, una sola copia invece di
+    tre blocchi quasi identici. ShowResourceTypeColumn nasconde la colonna "Tipo" nelle
+    schede Voli/Aeroporti, dove sarebbe ridondante (tutte le righe hanno lo stesso tipo).
+
+    Il dettaglio resta una pagina intera separata (/airports/{id}, /flights/{id}), non un
+    popup — per coerenza con Airports.razor/Flights.razor esistenti, come deciso in
+    conversazione. Ogni link porta pero' con se' un returnUrl che punta esattamente alla
+    scheda e alla pagina di risultati corrente, cosi' il pulsante "Back" della pagina di
+    dettaglio riporta l'utente dove si trovava invece che sempre alla lista semplice — vedi
+    AirportDetail.razor/FlightDetail.razor.
+*@
+
+<div class="table-responsive mt-3">
+    @if (IsLoading)
+    {
+        <p><em>Ricerca in corso...</em></p>
+    }
+    else if (Items is { Count: > 0 })
+    {
+        <table class="table table-striped table-hover">
+            <thead>
+                <tr>
+                    @if (ShowResourceTypeColumn)
+                    {
+                        <th>Tipo</th>
+                    }
+                    <th>Id</th>
+                    <th>Descrizione</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var item in Items)
+                {
+                    <tr>
+                        @if (ShowResourceTypeColumn)
+                        {
+                            <td>@item.ResourceType</td>
+                        }
+                        <td>
+                            <NavLink href="@DetailUrl(item)">@item.Id</NavLink>
+                        </td>
+                        <td>@item.Description</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+
+        <div class="d-flex justify-content-between mt-3">
+            <button class="btn btn-primary" @onclick="OnPreviousClicked" disabled="@(Offset == 0)">Previous</button>
+            <button class="btn btn-primary" @onclick="OnNextClicked" disabled="@(Offset + Limit >= TotalCount)">Next</button>
+        </div>
+
+        <p class="mt-2 text-muted">
+            Showing @Items.Count risultati (offset @Offset, limit @Limit) - totale @TotalCount
+        </p>
+    }
+    else if (HasSearched)
+    {
+        <p>Nessun risultato trovato.</p>
+    }
+</div>
+
+@code {
+    [Parameter] public List<SearchResultDto>? Items { get; set; }
+    [Parameter] public int Offset { get; set; }
+    [Parameter] public int Limit { get; set; }
+    [Parameter] public int TotalCount { get; set; }
+    [Parameter] public bool IsLoading { get; set; }
+    [Parameter] public bool HasSearched { get; set; }
+    [Parameter] public bool ShowResourceTypeColumn { get; set; } = true;
+
+    /// <summary>URL della pagina/scheda di ricerca corrente, gia' pronto per essere
+    /// incorporato come returnUrl nel link di dettaglio (vedi commento in testa al file).</summary>
+    [Parameter] public string ReturnUrl { get; set; } = "/search";
+
+    /// <summary>Query di ricerca corrente: incorporata anche lei nel link di dettaglio, in
+    /// modo che AirportDetail.razor/FlightDetail.razor possano rileggere la riga dalla
+    /// stessa cache che ha prodotto questa lista invece di interrogare di nuovo dal vivo
+    /// AirportsService/FlightsService — vedi GlobalSearchController.GetCachedAirportById/
+    /// GetCachedFlightById e la discussione in docs/architecture.md.</summary>
+    [Parameter] public string Query { get; set; } = "";
+
+    [Parameter] public EventCallback OnPreviousClicked { get; set; }
+    [Parameter] public EventCallback OnNextClicked { get; set; }
+
+    private string DetailUrl(SearchResultDto item)
+    {
+        var basePath = item.ResourceType == "flight" ? $"/flights/{item.Id}" : $"/airports/{item.Id}";
+        return $"{basePath}?returnUrl={Uri.EscapeDataString(ReturnUrl)}&query={Uri.EscapeDataString(Query)}";
+    }
+}

@@ -86,6 +86,25 @@ public class GlobalSearchApiLiveTests
     }
 
     [Fact]
+    public async Task Search_ResourceTypeAirport_ReturnsOnlyAirports()
+    {
+        var response = await GetAsync("/api/global-search?query=Milano&offset=0&limit=50&resourceType=airport");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var body = await response.Content.ReadFromJsonAsync<SearchResponseDto>();
+        Assert.NotNull(body);
+        Assert.NotEmpty(body!.Items);
+        Assert.All(body.Items, i => Assert.Equal("airport", i.ResourceType));
+    }
+
+    [Fact]
+    public async Task Search_ResourceTypeInvalid_ReturnsBadRequest()
+    {
+        var response = await GetAsync("/api/global-search?query=Milano&offset=0&limit=10&resourceType=treno");
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
     public async Task Search_SecondIdenticalCall_IsMuchFasterThanFirst_ThanksToCaching()
     {
         // Stringa quasi certamente mai cercata prima (suffisso casuale): garantisce un
@@ -122,12 +141,109 @@ public class GlobalSearchApiLiveTests
         }
     }
 
+    [Fact]
+    public async Task Search_ThenGetCachedAirportDetail_MatchesTheRowFromTheList()
+    {
+        var searchResponse = await GetAsync("/api/global-search?query=Milano&offset=0&limit=50&resourceType=airport");
+        Assert.Equal(HttpStatusCode.OK, searchResponse.StatusCode);
+
+        var searchBody = await searchResponse.Content.ReadFromJsonAsync<SearchResponseDto>();
+        Assert.NotNull(searchBody);
+        var row = searchBody!.Items.FirstOrDefault();
+        Assert.NotNull(row);
+
+        var detailResponse = await GetAsync($"/api/global-search/airports/{row!.Id}?query=Milano");
+        Assert.Equal(HttpStatusCode.OK, detailResponse.StatusCode);
+
+        var detail = await detailResponse.Content.ReadFromJsonAsync<AirportDetailDto>();
+        Assert.NotNull(detail);
+        Assert.Equal(row.Id, detail!.Id);
+
+        // Stessa formula di proiezione usata da RealGlobalSearchService.ProjectAirport:
+        // se il dettaglio corrisponde davvero alla riga, la Description della lista deve
+        // essere ricostruibile esattamente dai campi del dettaglio.
+        Assert.Equal($"{detail.Id} - {detail.Name} ({detail.Country})", row.Description);
+    }
+
+    [Fact]
+    public async Task Search_ThenGetCachedFlightDetail_MatchesTheRowFromTheList_AndStaysStableOnRepeatedCalls()
+    {
+        var searchResponse = await GetAsync("/api/global-search?query=Milano&offset=0&limit=50&resourceType=flight");
+        Assert.Equal(HttpStatusCode.OK, searchResponse.StatusCode);
+
+        var searchBody = await searchResponse.Content.ReadFromJsonAsync<SearchResponseDto>();
+        Assert.NotNull(searchBody);
+        var row = searchBody!.Items.FirstOrDefault();
+        Assert.NotNull(row);
+
+        var firstDetailResponse = await GetAsync($"/api/global-search/flights/{row!.Id}?query=Milano");
+        Assert.Equal(HttpStatusCode.OK, firstDetailResponse.StatusCode);
+        var firstDetail = await firstDetailResponse.Content.ReadFromJsonAsync<FlightDetailDto>();
+        Assert.NotNull(firstDetail);
+        Assert.Equal(row.Id, firstDetail!.Id);
+        Assert.Equal($"{firstDetail.Id} - {firstDetail.DepartureCity} -> {firstDetail.ArrivalCity}", row.Description);
+
+        // Il punto centrale del bug originale (vedi docs/architecture.md): FlightsService
+        // rigenera dati casuali ad ogni chiamata gRPC diretta. Rileggendo invece dalla
+        // stessa cache di ricerca (stessa query), due letture successive dello stesso id
+        // devono restituire ESATTAMENTE lo stesso contenuto — non un'istantanea nuova ogni
+        // volta, come accadeva prima di questa estensione.
+        var secondDetailResponse = await GetAsync($"/api/global-search/flights/{row.Id}?query=Milano");
+        Assert.Equal(HttpStatusCode.OK, secondDetailResponse.StatusCode);
+        var secondDetail = await secondDetailResponse.Content.ReadFromJsonAsync<FlightDetailDto>();
+        Assert.NotNull(secondDetail);
+
+        Assert.Equal(firstDetail.AircraftNumber, secondDetail!.AircraftNumber);
+        Assert.Equal(firstDetail.DepartureCity, secondDetail.DepartureCity);
+        Assert.Equal(firstDetail.ArrivalCity, secondDetail.ArrivalCity);
+        Assert.Equal(firstDetail.DepartureAirportCode, secondDetail.DepartureAirportCode);
+        Assert.Equal(firstDetail.ArrivalAirportCode, secondDetail.ArrivalAirportCode);
+        Assert.Equal(firstDetail.DepartureTime, secondDetail.DepartureTime);
+        Assert.Equal(firstDetail.ArrivalTime, secondDetail.ArrivalTime);
+    }
+
+    [Fact]
+    public async Task GetCachedAirportDetail_QueryMissing_ReturnsBadRequest()
+    {
+        var response = await GetAsync("/api/global-search/airports/AP0001");
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetCachedFlightDetail_UnknownIdForThatQuery_ReturnsNotFound()
+    {
+        // Un id chiaramente inventato non puo' comparire nell'elenco filtrato per "Milano",
+        // qualunque esso sia in quel momento.
+        var response = await GetAsync("/api/global-search/flights/NON-ESISTE-123?query=Milano");
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
     private static async Task<(HttpStatusCode StatusCode, TimeSpan Elapsed)> TimedGetAsync(string relativeUrl)
     {
         var stopwatch = Stopwatch.StartNew();
         var response = await GetAsync(relativeUrl);
         stopwatch.Stop();
         return (response.StatusCode, stopwatch.Elapsed);
+    }
+
+    private class AirportDetailDto
+    {
+        public string Id { get; set; } = default!;
+        public string Name { get; set; } = default!;
+        public string City { get; set; } = default!;
+        public string Country { get; set; } = default!;
+    }
+
+    private class FlightDetailDto
+    {
+        public string Id { get; set; } = default!;
+        public string AircraftNumber { get; set; } = default!;
+        public string DepartureAirportCode { get; set; } = default!;
+        public string ArrivalAirportCode { get; set; } = default!;
+        public string DepartureCity { get; set; } = default!;
+        public string ArrivalCity { get; set; } = default!;
+        public string DepartureTime { get; set; } = default!;
+        public string ArrivalTime { get; set; } = default!;
     }
 
     private class SearchResultDto

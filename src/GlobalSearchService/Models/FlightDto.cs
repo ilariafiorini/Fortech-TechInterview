@@ -16,6 +16,12 @@ public class FlightDto
     public string DepartureCity { get; set; } = default!;
     public string ArrivalCity { get; set; } = default!;
 
+    // Aggiunti per riuso della riga cacheata anche dalla pagina di dettaglio (vedi
+    // GlobalSearchController.GetCachedFlightById): non servivano al solo confronto
+    // testuale di MatchesQuery in FlightsSearchCache, ma FlightDetail.razor li mostra.
+    public string DepartureTime { get; set; } = default!;
+    public string ArrivalTime { get; set; } = default!;
+
     public static FlightDto FromGrpc(FlightsService.Grpc.Flight flight) => new()
     {
         Id = flight.Id,
@@ -23,6 +29,8 @@ public class FlightDto
         DepartureAirportCode = flight.DepartureAirportCode,
         ArrivalAirportCode = flight.ArrivalAirportCode,
         DepartureCity = flight.DepartureCity,
-        ArrivalCity = flight.ArrivalCity
+        ArrivalCity = flight.ArrivalCity,
+        DepartureTime = flight.DepartureTime,
+        ArrivalTime = flight.ArrivalTime
     };
 }
