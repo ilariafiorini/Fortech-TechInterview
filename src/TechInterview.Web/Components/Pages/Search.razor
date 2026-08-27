@@ -26,7 +26,6 @@
     // decisioni prese sul comportamento.
 
     private string _query = string.Empty;
-    private int _limit = 20;
 
     protected override void OnInitialized()
     {
@@ -35,7 +34,6 @@
         // l'ultima ricerca e' sempre il punto di partenza della successiva.
         var state = SearchNavigation.ReadFrom(Nav);
         _query = state.Query;
-        _limit = state.Limit;
     }
 
     private Task OnKeyDown(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e) =>
@@ -44,8 +42,13 @@
     private Task OnSearchClicked()
     {
         // Nuova ricerca: azzera tutti e tre gli offset (vedi SearchNavigation.cs) e apre la
-        // vista "All" — le altre due schede restano un click di distanza.
-        var newState = new SearchNavigation.State(_query.Trim(), _limit, AllOffset: 0, AirportsOffset: 0, FlightsOffset: 0);
+        // vista "All" — le altre due schede restano un click di distanza. I tre limiti di
+        // paginazione (uno per scheda, scelti eventualmente dall'utente su una ricerca
+        // precedente) NON vengono toccati qui: si rilegge lo stato corrente e lo si
+        // ripropaga intatto, cambiando solo query e offset — la selezione di quante righe
+        // per pagina persiste da una ricerca all'altra, come gia' la query stessa.
+        var current = SearchNavigation.ReadFrom(Nav);
+        var newState = current with { Query = _query.Trim(), AllOffset = 0, AirportsOffset = 0, FlightsOffset = 0 };
         Nav.NavigateTo(SearchNavigation.BuildUrl(SearchNavigation.AllPath, newState));
         return Task.CompletedTask;
     }

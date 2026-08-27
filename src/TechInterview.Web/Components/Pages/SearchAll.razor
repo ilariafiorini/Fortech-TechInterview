@@ -20,7 +20,7 @@ else
     <SearchResultsTable
         Items="_results"
         Offset="_state.AllOffset"
-        Limit="_state.Limit"
+        Limit="_state.AllLimit"
         TotalCount="_totalCount"
         IsLoading="_isLoading"
         HasSearched="true"
@@ -28,7 +28,8 @@ else
         ReturnUrl="@SearchNavigation.BuildUrl(SearchNavigation.AllPath, _state)"
         Query="@_state.Query"
         OnPreviousClicked="PreviousPage"
-        OnNextClicked="NextPage" />
+        OnNextClicked="NextPage"
+        OnLimitChanged="OnLimitChanged" />
 }
 
 @code {
@@ -37,7 +38,7 @@ else
     // schema URL condiviso (SearchNavigation.cs): l'offset che questa pagina possiede e
     // aggiorna e' solo AllOffset, gli altri due viaggiano intatti attraverso di essa.
 
-    private SearchNavigation.State _state = new(string.Empty, 20, 0, 0, 0);
+    private SearchNavigation.State _state = new(string.Empty, 20, 20, 20, 0, 0, 0);
     private List<SearchResultDto>? _results;
     private int _totalCount;
     private bool _isLoading;
@@ -62,7 +63,7 @@ else
         try
         {
             var client = ClientFactory.CreateClient("globalsearch");
-            var url = $"/api/global-search?query={Uri.EscapeDataString(_state.Query.Trim())}&offset={_state.AllOffset}&limit={_state.Limit}";
+            var url = $"/api/global-search?query={Uri.EscapeDataString(_state.Query.Trim())}&offset={_state.AllOffset}&limit={_state.AllLimit}";
             var response = await client.GetAsync(url);
 
             if (response.IsSuccessStatusCode)
@@ -87,14 +88,25 @@ else
 
     private async Task NextPage()
     {
-        _state = _state with { AllOffset = _state.AllOffset + _state.Limit };
+        _state = _state with { AllOffset = _state.AllOffset + _state.AllLimit };
         Nav.NavigateTo(SearchNavigation.BuildUrl(SearchNavigation.AllPath, _state), replace: true);
         await LoadResults();
     }
 
     private async Task PreviousPage()
     {
-        _state = _state with { AllOffset = Math.Max(0, _state.AllOffset - _state.Limit) };
+        _state = _state with { AllOffset = Math.Max(0, _state.AllOffset - _state.AllLimit) };
+        Nav.NavigateTo(SearchNavigation.BuildUrl(SearchNavigation.AllPath, _state), replace: true);
+        await LoadResults();
+    }
+
+    private async Task OnLimitChanged(int newLimit)
+    {
+        // Un offset calcolato con il vecchio limite non corrisponde piu' a nulla di
+        // sensato una volta cambiata la dimensione di pagina: si riparte dalla prima
+        // pagina di questa scheda, lasciando invariati gli altri campi (incluso il limite
+        // delle altre due schede, indipendente da questo — vedi SearchNavigation.cs).
+        _state = _state with { AllLimit = newLimit, AllOffset = 0 };
         Nav.NavigateTo(SearchNavigation.BuildUrl(SearchNavigation.AllPath, _state), replace: true);
         await LoadResults();
     }

@@ -17,6 +17,7 @@ containerizzata in Docker Desktop, senza bisogno dell'SDK .NET installato in loc
 | aspire-dashboard       | 18888     | Dashboard OpenTelemetry (log/traccia/metriche)        |
 | redis                  | 6379      | Cache usata da globalsearchservice                    |
 | redis-commander        | 8084      | UI web per ispezionare a mano le chiavi in Redis      |
+| grpcui                 | 8085      | UI web per esplorare FlightsService via gRPC reflection |
 
 Tutte le porte host elencate sopra sono i **valori di default**: sono parametrizzate
 tramite variabili d'ambiente lette dal file `docker/.env` (Docker Compose lo carica
@@ -76,6 +77,14 @@ OpenAPI offre alle REST API.
 
 Con la reflection attiva puoi usare, ad esempio:
 
+- **grpcui gia' dockerizzato, http://localhost:8085**: `docker compose up --build` avvia
+  anche un container `grpcui` (immagine ufficiale `fullstorydev/grpcui`) gia' puntato su
+  `flightsservice`, nessuna installazione richiesta. E' l'opzione consigliata in questo
+  ambiente Docker: apri l'URL e hai subito il form interattivo, generato dalla stessa
+  reflection descritta sopra. Usa `-connect-fail-fast=false` (il container non si
+  arresta se `flightsservice` non e' ancora pronto al primissimo avvio) e
+  `restart: on-failure` come rete di sicurezza; la porta e' parametrizzata in
+  `docker/.env` (`GRPCUI_PORT`, default 8085) come tutte le altre.
 - **grpcurl** (CLI, l'equivalente di curl per gRPC — richiede solo `-plaintext`
   perche' qui non c'e' TLS):
 
@@ -86,15 +95,17 @@ Con la reflection attiva puoi usare, ad esempio:
   grpcurl -plaintext -d "{\"id\": \"<un-id-restituito-sopra>\"}" localhost:8082 flights.Flights/GetFlightById
   ```
 
-- **grpcui** (`grpcui -plaintext localhost:8082`): stessa idea di grpcurl ma con una UI
-  web tipo Swagger UI, generata automaticamente dalla reflection.
+- **grpcui installato in locale** (`grpcui -plaintext localhost:8082`): stessa UI del
+  container dockerizzato sopra, utile se preferisci non usarlo via Docker (es. contro
+  un'istanza di FlightsService avviata fuori da questo `docker-compose.yml`).
 - **Postman** o **Insomnia**: entrambi supportano gRPC nativamente; basta creare una
   richiesta gRPC verso `localhost:8082` e usare "usa reflection del server" invece di
   importare il file `.proto`.
 
 Nota: la reflection e' mappata solo quando `ASPNETCORE_ENVIRONMENT=Development` (come
 gia' per Scalar), quindi funziona con questo `docker-compose.yml` ma andrebbe rimossa
-o protetta in un'ipotetica build di Production.
+o protetta in un'ipotetica build di Production — il container `grpcui` stesso avrebbe
+poco senso in una build del genere, e andrebbe rimosso insieme alla reflection.
 
 ## Come vedere la cache in azione (anche con il mockup)
 

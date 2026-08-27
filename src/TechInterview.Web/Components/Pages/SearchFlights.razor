@@ -20,7 +20,7 @@ else
     <SearchResultsTable
         Items="_results"
         Offset="_state.FlightsOffset"
-        Limit="_state.Limit"
+        Limit="_state.FlightsLimit"
         TotalCount="_totalCount"
         IsLoading="_isLoading"
         HasSearched="true"
@@ -28,7 +28,8 @@ else
         ReturnUrl="@SearchNavigation.BuildUrl(SearchNavigation.FlightsPath, _state)"
         Query="@_state.Query"
         OnPreviousClicked="PreviousPage"
-        OnNextClicked="NextPage" />
+        OnNextClicked="NextPage"
+        OnLimitChanged="OnLimitChanged" />
 }
 
 @code {
@@ -38,7 +39,7 @@ else
     // FlightsOffset; gli altri due viaggiano intatti attraverso di essa (vedi
     // SearchNavigation.cs).
 
-    private SearchNavigation.State _state = new(string.Empty, 20, 0, 0, 0);
+    private SearchNavigation.State _state = new(string.Empty, 20, 20, 20, 0, 0, 0);
     private List<SearchResultDto>? _results;
     private int _totalCount;
     private bool _isLoading;
@@ -63,7 +64,7 @@ else
         try
         {
             var client = ClientFactory.CreateClient("globalsearch");
-            var url = $"/api/global-search?query={Uri.EscapeDataString(_state.Query.Trim())}&offset={_state.FlightsOffset}&limit={_state.Limit}&resourceType=flight";
+            var url = $"/api/global-search?query={Uri.EscapeDataString(_state.Query.Trim())}&offset={_state.FlightsOffset}&limit={_state.FlightsLimit}&resourceType=flight";
             var response = await client.GetAsync(url);
 
             if (response.IsSuccessStatusCode)
@@ -88,14 +89,25 @@ else
 
     private async Task NextPage()
     {
-        _state = _state with { FlightsOffset = _state.FlightsOffset + _state.Limit };
+        _state = _state with { FlightsOffset = _state.FlightsOffset + _state.FlightsLimit };
         Nav.NavigateTo(SearchNavigation.BuildUrl(SearchNavigation.FlightsPath, _state), replace: true);
         await LoadResults();
     }
 
     private async Task PreviousPage()
     {
-        _state = _state with { FlightsOffset = Math.Max(0, _state.FlightsOffset - _state.Limit) };
+        _state = _state with { FlightsOffset = Math.Max(0, _state.FlightsOffset - _state.FlightsLimit) };
+        Nav.NavigateTo(SearchNavigation.BuildUrl(SearchNavigation.FlightsPath, _state), replace: true);
+        await LoadResults();
+    }
+
+    private async Task OnLimitChanged(int newLimit)
+    {
+        // Un offset calcolato con il vecchio limite non corrisponde piu' a nulla di
+        // sensato una volta cambiata la dimensione di pagina: si riparte dalla prima
+        // pagina di questa scheda, lasciando invariati gli altri campi (incluso il limite
+        // delle altre due schede, indipendente da questo — vedi SearchNavigation.cs).
+        _state = _state with { FlightsLimit = newLimit, FlightsOffset = 0 };
         Nav.NavigateTo(SearchNavigation.BuildUrl(SearchNavigation.FlightsPath, _state), replace: true);
         await LoadResults();
     }

@@ -47,9 +47,20 @@
             </tbody>
         </table>
 
-        <div class="d-flex justify-content-between mt-3">
-            <button class="btn btn-primary" @onclick="OnPreviousClicked" disabled="@(Offset == 0)">Previous</button>
-            <button class="btn btn-primary" @onclick="OnNextClicked" disabled="@(Offset + Limit >= TotalCount)">Next</button>
+        <div class="d-flex justify-content-between align-items-center mt-3">
+            <div>
+                <label for="pageSizeSelect" class="form-label me-2 mb-0">Risultati per pagina</label>
+                <select id="pageSizeSelect" class="form-select form-select-sm d-inline-block w-auto" @onchange="HandleLimitChanged">
+                    @foreach (var option in PageSizeOptions)
+                    {
+                        <option value="@option" selected="@(option == Limit)">@option</option>
+                    }
+                </select>
+            </div>
+            <div class="d-flex gap-2">
+                <button class="btn btn-primary" @onclick="OnPreviousClicked" disabled="@(Offset == 0)">Previous</button>
+                <button class="btn btn-primary" @onclick="OnNextClicked" disabled="@(Offset + Limit >= TotalCount)">Next</button>
+            </div>
         </div>
 
         <p class="mt-2 text-muted">
@@ -85,9 +96,26 @@
     [Parameter] public EventCallback OnPreviousClicked { get; set; }
     [Parameter] public EventCallback OnNextClicked { get; set; }
 
+    /// <summary>Invocato quando l'utente sceglie un nuovo numero di righe per pagina dal
+    /// selettore. Il chiamante (SearchAll/SearchAirports/SearchFlights.razor) e' responsabile
+    /// di azzerare il proprio offset — un offset calcolato con il vecchio limite non
+    /// corrisponde piu' a nulla di sensato una volta cambiata la dimensione di pagina — e di
+    /// ricaricare i risultati con il nuovo valore.</summary>
+    [Parameter] public EventCallback<int> OnLimitChanged { get; set; }
+
+    // Il backend (GlobalSearchController) accetta fino a 100 risultati per pagina: nessuna
+    // opzione qui sopra quel tetto, per evitare che l'utente scelga un valore che verrebbe
+    // comunque silenziosamente troncato lato server.
+    private static readonly int[] PageSizeOptions = { 10, 20, 50, 100 };
+
     private string DetailUrl(SearchResultDto item)
     {
         var basePath = item.ResourceType == "flight" ? $"/flights/{item.Id}" : $"/airports/{item.Id}";
         return $"{basePath}?returnUrl={Uri.EscapeDataString(ReturnUrl)}&query={Uri.EscapeDataString(Query)}";
     }
+
+    private Task HandleLimitChanged(ChangeEventArgs e) =>
+        int.TryParse(e.Value?.ToString(), out var newLimit)
+            ? OnLimitChanged.InvokeAsync(newLimit)
+            : Task.CompletedTask;
 }

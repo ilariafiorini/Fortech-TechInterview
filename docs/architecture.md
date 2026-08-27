@@ -406,8 +406,8 @@ paginazione (`Components/Shared/SearchResultsTable.razor`) e collegano ogni riga
 pagina di dettaglio gia' esistente (`/airports/{id}`, `/flights/{id}`), mai a un popup.
 
 **Stato condiviso nella query string (`SearchNavigation.cs`).** Le quattro pagine
-condividono un unico schema di query string — `query`, `limit`, `allOffset`,
-`airportsOffset`, `flightsOffset` — incapsulato in
+condividono un unico schema di query string — `query`, `allLimit`, `airportsLimit`,
+`flightsLimit`, `allOffset`, `airportsOffset`, `flightsOffset` — incapsulato in
 `Components/Shared/SearchNavigation.cs` (un `record` `State` con gli helper statici
 `ReadFrom(NavigationManager)` e `BuildUrl(path, state)`). Le regole concordate:
 
@@ -533,6 +533,33 @@ mano (`NavClass`) su normali tag `<a>` al posto di `<NavLink>`, per avere pieno 
 sulla logica invece di combinare il matching automatico del framework con un'eccezione
 scritta a mano — sarebbe stata una fonte di incoerenze piu' difficile da mantenere.
 
+
+**Numero di risultati per pagina, indipendente per scheda.** Le tre schede di ricerca
+mostravano tutte una pagina fissa di 20 righe, senza possibilita' di cambiarla; su
+richiesta esplicita e' stata resa variabile, ma non come un unico valore condiviso fra le
+tre schede — cambiarlo su una non deve alterare le altre due, per lo stesso motivo gia'
+visto per gli offset. `SearchNavigation.State` porta quindi tre campi separati
+(`AllLimit`/`AirportsLimit`/`FlightsLimit`, tutti di default 20) al posto dell'unico
+`Limit` precedente: la query string resta la fonte di verita' (`allLimit`/
+`airportsLimit`/`flightsLimit`), cosi' la scelta sopravvive a un refresh o a un link
+condiviso, e non viene toccata da una nuova ricerca (che azzera solo gli offset — vedi
+`Search.razor.OnSearchClicked`).
+
+`SearchResultsTable.razor` espone un selettore (`<select>`, valori 10/20/50/100) sopra i
+pulsanti Previous/Next, e un nuovo parametro `EventCallback<int> OnLimitChanged`
+invocato alla scelta. La responsabilita' di reagire al cambiamento resta della pagina
+chiamante, non del componente condiviso: ciascuna delle tre pagine, nel proprio gestore,
+aggiorna il proprio campo di `_state`, azzera il proprio offset (un offset calcolato con
+il vecchio limite non indica piu' nulla di sensato una volta cambiata la dimensione di
+pagina) e ricarica i risultati. Le opzioni del selettore si fermano a 100 perche' e' lo
+stesso tetto gia' imposto dal backend (`GlobalSearchController`: `limit =
+Math.Min(limit, 100)`) — un'opzione oltre quella soglia verrebbe comunque troncata
+silenziosamente lato server, quindi non viene nemmeno proposta.
+
+Questa modifica riguarda solo le tre pagine di risultati di ricerca (`SearchAll`/
+`SearchAirports`/`SearchFlights.razor`); le pagine di sfoglio originali
+(`Airports.razor`/`Flights.razor`), esplicitamente fuori dal perimetro concordato per
+questa modifica, continuano a usare il proprio limite fisso di 20, invariato.
 
 Semplificazioni consapevoli, non affrontate in questo prototipo:
 
