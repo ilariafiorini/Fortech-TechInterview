@@ -9,7 +9,7 @@ Docker richiesto, girano con un normale `dotnet test`:
   isolabile (`AirportsSearchCache`, `FlightsSearchCache`, `RealGlobalSearchService`,
   `CachingGlobalSearchService` — inclusa la separazione per bucket/resourceType — e le
   due azioni di `GlobalSearchController` che leggono il dettaglio dalla cache di ricerca).
-  Vedi la sezione "Prototipo di studio" in `docs/architecture.md` per il dettaglio.
+  Vedi la sezione "Implementazione della Global Search API reale" in `docs/architecture.md` per il dettaglio.
 - `AirportsService.Tests` — non ancora creato.
 - `FlightsService.Tests` — non ancora creato.
 

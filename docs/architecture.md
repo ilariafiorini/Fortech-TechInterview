@@ -11,7 +11,7 @@ TechInterview/
 │   ├── TechInterview.ServiceDefaults/   # telemetry, health check, resilienza condivisi
 │   ├── AirportsService/                 # REST API, CRUD aeroporti (Dockerfile incluso)
 │   ├── FlightsService/                  # gRPC API, CRUD voli (Dockerfile incluso)
-│   ├── GlobalSearchService/             # Global Search API — MOCKUP + cache Redis gia' completa (Dockerfile incluso)
+│   ├── GlobalSearchService/             # Global Search API — implementazione reale + cache Redis (Dockerfile incluso)
 │   └── TechInterview.Web/               # frontend Blazor Server (Dockerfile incluso)
 ├── tests/                 # progetti di test automatici (ancora vuota)
 └── TechInterview.sln
@@ -69,49 +69,29 @@ TechInterview/
   senza importare a mano `Protos/flights.proto` — l'equivalente, per gRPC, di quello che
   Scalar/OpenAPI offrono alle REST API. Esempi in `docker/README.md`.
 
-### Da fare (il vero compito della consegna)
+### Limitazioni note e possibili sviluppi futuri
 
-- [x] **Logica di ricerca reale in `GlobalSearchService`**: implementata come
-  PROTOTIPO DI STUDIO sul branch `prototype/real-search` (`RealGlobalSearchService`,
-  `AirportsSearchCache`, `FlightsSearchCache` — vedi la sezione dedicata in fondo a
-  questo file). Su `main` resta `MockGlobalSearchService`: la riscrittura a mano,
-  vera consegna dell'esercizio, resta da fare.
-- [ ] Decidere e documentare la strategia di paginazione (sulle fonti vs
-  sull'aggregato) — vedi i TODO nel mockup per i trade-off, tenendo conto che
-  `CachingGlobalSearchService` chiama il metodo con un `limit` molto ampio per
-  ottenere l'insieme "completo" da cachare.
-- [ ] Allineare il filtro di rifinitura usato dalla cache (oggi su `Description`)
-  agli stessi campi grezzi usati dalla ricerca reale, se necessario.
-- [x] Collegare la pagina `TechInterview.Web/Components/Pages/Search.razor` (oggi
-  un placeholder con dati finti) alla vera Global Search API — fatto anch'esso solo
-  sul branch `prototype/real-search`, stesso discorso del punto sopra.
-- [ ] Bonus facoltativi non ancora affrontati: test automatici (cartella `tests/`
-  pronta ma vuota), logging strutturato applicativo.
-- [x] Rendere configurabile l'ampiezza del fan-out con cui `SearchAsync` interroga
-  `FlightsService` e `AirportsService` (numero di chiamate parallele necessarie a
-  coprire l'intero dataset di una fonte) invece di un valore fisso in codice — stesso
-  pattern gia' usato per `GlobalSearchCache` in `appsettings.json`. Fatto sul branch
-  `prototype/real-search` come `SearchFanOutOptions` / sezione `SearchFanOut` in
-  `appsettings.json` (default `PageLimit: 20`).
-- [ ] **Resilienza gRPC su FlightsService**: lo `AddStandardResilienceHandler()` di
-  `TechInterview.ServiceDefaults` copre solo i fallimenti di trasporto (connessione
-  rifiutata, timeout di rete), perche' decide se ritentare guardando lo status code
-  HTTP — ma un errore applicativo gRPC viaggia in una risposta HTTP 200 con l'esito
-  vero nei trailer (`grpc-status`), invisibili a quella logica. Da valutare una retry
-  policy nativa sul canale gRPC (`GrpcChannelOptions.ServiceConfig` con
-  `MethodConfig`/`RetryPolicy`, che capiscono `UNAVAILABLE`/`DEADLINE_EXCEEDED` ecc.).
-- [ ] Implementare per Airports il seeding lazy/auto-riparante della entry cache a
-  chiave stringa vuota (l'intera tabella di 300 aeroporti, stessa scadenza
-  sliding+assoluta delle altre entry) e l'algoritmo di ricerca della sottostringa
-  cacheata piu' lunga compatibile con la nuova query (fallback su "") — vedi il
-  dettaglio nella voce "Strategia di caching per fonte" qui sotto. Da riusare per il
-  fetch completo lo stesso schema a piu' chiamate parallele gia' scelto per Flights,
-  visto che anche `AirportsService` limita `limit<=100` per pagina.
-- [ ] Decidere se, a ogni nuova ricerca, eliminare esplicitamente dalla cache l'elenco filtrato della ricerca precedente oppure lasciarlo scadere da solo via TTL — vedi la nota in "Decisioni prese" qui sotto (Strategia di caching per fonte, Airports vs Flights).
-- [x] Verificare che `docker compose up --build` funzioni: testato con successo.
-  Durante il test emersi e risolti due problemi di negoziazione HTTP/1.1 vs HTTP/2
-  su `flightsservice` (unico servizio puramente gRPC, quindi il più sensibile
-  all'argomento) — vedi la nuova voce in "Decisioni prese" qui sotto.
+Il branch `prototype/real-search` è la versione consegnata: quanto segue non è un
+elenco di cose ancora necessarie per completare la consegna, ma un memo dei punti
+lasciati consapevolmente aperti, con la ragione per cui non sono stati affrontati.
+
+- **Filtro di rifinitura della cache limitato a `Description`**:
+  `CachingGlobalSearchService` filtra il superset cacheato solo su questo campo
+  (vedi il TODO nel file stesso); allinearlo agli stessi campi grezzi usati dalla
+  ricerca reale è un affinamento possibile, non necessario alla scala di questo
+  esercizio.
+- **Nessun logging strutturato applicativo**: i servizi si appoggiano solo alla
+  telemetria di default di `TechInterview.ServiceDefaults` (OpenTelemetry/health
+  check), senza `ILogger` applicativo dedicato nei punti di business logic.
+- **Resilienza gRPC solo a livello di trasporto**: `AddStandardResilienceHandler()`
+  copre i fallimenti di connessione/timeout di rete, ma non gli errori applicativi
+  gRPC che arrivano in una risposta HTTP 200 con l'esito vero nei trailer
+  (`grpc-status`) — servirebbe una retry policy nativa sul canale
+  (`GrpcChannelOptions.ServiceConfig`) per coprire anche quel caso.
+- **Invalidazione della cache ad ogni nuova ricerca**: rimasta una scelta
+  esplicitamente aperta (vedi "Strategia di caching per fonte" in "Decisioni
+  prese") tra cancellazione esplicita ed expiry via TTL; oggi ci si affida al TTL,
+  gia' costruito e sufficiente alla scala di questo esercizio.
 
 ## Decisioni prese
 
@@ -290,14 +270,77 @@ TechInterview/
     avrebbe senso solo per limitare attivamente la crescita della cache, a
     prescindere dal concetto di "ricerca precedente".
 
-## Prototipo di studio: branch `prototype/real-search`
+## Implementazione della Global Search API reale (questo branch)
 
-Su richiesta esplicita, questo branch (staccato da `main`, non pensato per essere
-mergiato cosi' com'e') contiene una implementazione completa della vera logica di
-ricerca, seguendo tutte le decisioni discusse e documentate in questo file. Serve da
-riferimento concreto per lo studio, non da consegna: l'idea e' riscrivere a mano la
-logica reale su `main`, usando questo codice come termine di paragone quando serve
-controllare come una decisione si traduce in codice.
+Questo branch, staccato da `main`, contiene l'implementazione completa e consegnata
+della vera logica di ricerca, secondo tutte le decisioni discusse e documentate in
+questo file. `main` resta invariato come riferimento per discutere l'approccio
+iniziale (containerizzazione dell'ambiente fornito, primo mockup funzionante con
+cache Redis); l'implementazione reale della Global Search API, descritta qui sotto,
+e' quanto viene presentato come consegna.
+
+### Oltre il quesito richiesto: la parte di presentazione visiva
+
+Il quesito dell'esercizio richiede un singolo endpoint (`GET /api/global-search`)
+che restituisca risultati eterogenei paginati. Questa consegna va oltre quel
+perimetro: include anche un frontend Blazor Server (quattro pagine di ricerca — All/
+Airports/Flights, con filtro per tipo e paginazione indipendente per scheda) e una
+gestione del dettaglio dei singoli risultati che resta coerente e persistente
+rispetto alla ricerca che li ha prodotti, invece di essere ricostruita a ogni
+apertura da una nuova interrogazione ai servizi sorgente.
+
+Questa parte non era richiesta dal quesito essenziale: nasce dalla curiosità di
+spingere oltre sia l'esperienza di sviluppo con Claude (prima volta con accesso
+diretto al codice, non solo prompt-e-incolla), sia lo sfruttamento della cache Redis
+già costruita per il solo endpoint — gli stessi dati cacheati per rispondere alla
+ricerca si prestano naturalmente a una visualizzazione per parti (le tre schede
+separate) e persistente (il dettaglio letto dalla stessa riga cacheata, non da una
+nuova chiamata dal vivo). La tabella qui sotto separa i file essenziali alla sola
+risoluzione del quesito da quelli dedicati a questa parte aggiuntiva.
+
+### Elenco dei file, per categoria
+
+**Materiale originale della sfida** (fornito con il test, non modificato nella sua
+logica):
+`src/AirportsService/`, `src/FlightsService/`, `src/TechInterview.Web/Components/
+Pages/{Home,Counter,Error,Airports,Flights}.razor`, `App.razor`, `Routes.razor`,
+`_Imports.razor`, `MainLayout.razor(.css)`.
+
+**File essenziali per l'endpoint Global Search richiesto dall'esercizio**:
+
+- `src/GlobalSearchService/Controllers/GlobalSearchController.cs` — solo l'azione
+  `GetGlobalSearch`; le altre due azioni di dettaglio cacheato appartengono alla
+  categoria successiva.
+- `src/GlobalSearchService/Services/{RealGlobalSearchService,AirportsSearchCache,
+  IAirportsSearchCache,FlightsSearchCache,IFlightsSearchCache,
+  CachingGlobalSearchService,IGlobalSearchService,MockGlobalSearchService,
+  GlobalSearchCacheOptions,SearchFanOutOptions}.cs`
+- `src/GlobalSearchService/Models/*.cs`, `Program.cs`, `GlobalSearchService.csproj`,
+  `Dockerfile`, `Protos/flights.proto`, `appsettings*.json`
+- `src/TechInterview.AppHost/`, `src/TechInterview.ServiceDefaults/`
+  (orchestrazione/infrastruttura condivisa)
+- `tests/GlobalSearchService.Tests/Services/*.cs`, gran parte di `TestDoubles/`
+- `tests/GlobalSearchService.IntegrationTests/` (per gli scenari sull'endpoint di
+  ricerca)
+
+**File per la parte di presentazione visiva aggiuntiva** (bonus, non richiesto dal
+quesito essenziale):
+
+- `src/TechInterview.Web/Components/Pages/{Search,SearchAll,SearchAirports,
+  SearchFlights}.razor`
+- `src/TechInterview.Web/Components/Shared/{SearchResultsTable.razor,
+  SearchNavigation.cs,SearchDtos.cs}`
+- `src/TechInterview.Web/Components/Pages/{AirportDetail,FlightDetail}.razor`
+  (riscritte per leggere dal dettaglio cacheato invece che dal vivo)
+- `src/TechInterview.Web/Components/Layout/NavMenu.razor(.css)`
+- Le due azioni di dettaglio cacheato in `GlobalSearchController.cs`
+  (`GetCachedAirportById`, `GetCachedFlightById`)
+- `tests/GlobalSearchService.Tests/Controllers/GlobalSearchControllerTests.cs`
+  (per la parte relativa al dettaglio cacheato)
+- Alcuni scenari di `tests/GlobalSearchService.IntegrationTests/` (stabilità del
+  dettaglio su letture ripetute)
+- `docker-compose.yml`/`.env`: i servizi `grpcui` e `redis-commander` (esplorazione
+  gRPC e ispezione Redis, entrambi non richiesti dal quesito)
 
 Cosa contiene, rispetto a `main`:
 

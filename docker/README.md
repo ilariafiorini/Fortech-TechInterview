@@ -13,7 +13,7 @@ containerizzata in Docker Desktop, senza bisogno dell'SDK .NET installato in loc
 | webfrontend           | 8080      | Frontend Blazor Server                                |
 | airportsservice        | 8081      | REST API — CRUD aeroporti                             |
 | flightsservice         | 8082      | gRPC API — CRUD voli                                  |
-| globalsearchservice    | 8083      | Global Search API — **attualmente un MOCKUP**         |
+| globalsearchservice    | 8083      | Global Search API — implementazione reale              |
 | aspire-dashboard       | 18888     | Dashboard OpenTelemetry (log/traccia/metriche)        |
 | redis                  | 6379      | Cache usata da globalsearchservice                    |
 | redis-commander        | 8084      | UI web per ispezionare a mano le chiavi in Redis      |
@@ -155,14 +155,13 @@ ambiente non è stato possibile eseguire l'SDK .NET/la Aspire CLI per generarlo 
 validarlo automaticamente — vale la pena verificarlo con una build reale prima di
 fare troppo affidamento su di esso).
 
-## Cosa e' un MOCKUP e cosa no
+## Cosa contiene questa consegna
 
-- `airportsservice`, `flightsservice`, `webfrontend`: codice gia' fornito con il
-  test, containerizzato cosi' com'e'.
-- `globalsearchservice`: **lo scheletro dell'endpoint e' pronto**, con contratto
-  conforme alla consegna, client (REST/gRPC) verso le due fonti dati gia'
-  registrati (ma non ancora usati per interrogarle davvero), e una cache Redis
-  completa e funzionante davanti a tutto (vedi `CachingGlobalSearchService`,
-  sliding+scadenza assoluta, riuso dei risultati per sottostringa). L'unica cosa
-  che manca e' l'aggregazione reale sui dati di Airports/Flights — vedi i TODO in
-  `src/GlobalSearchService/Services/MockGlobalSearchService.cs`.
+- `airportsservice`, `flightsservice`: codice gia' fornito con il test,
+  containerizzato cosi' com'e'.
+- `webfrontend`: frontend Blazor Server, con le quattro pagine di ricerca (vedi
+  "Oltre il quesito richiesto" in `docs/architecture.md`).
+- `globalsearchservice`: implementazione reale della Global Search API —
+  aggregazione vera su Airports/Flights dietro la cache Redis completa
+  (`CachingGlobalSearchService`, sliding+scadenza assoluta, riuso dei risultati per
+  sottostringa). Dettagli in `docs/architecture.md`.
