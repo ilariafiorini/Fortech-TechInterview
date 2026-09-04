@@ -1,6 +1,22 @@
 # README.md
 # Tech Interview – Global Search API Challenge
 
+## Stato di questo branch
+
+Questo file descrive il quesito originale della sfida, lasciato invariato.
+Questo branch (`main`) rappresenta lo stato del progetto all'approccio
+iniziale — containerizzazione dell'ambiente fornito e primo mockup della
+Global Search API con cache Redis gia' completa — fermo intenzionalmente a
+questo punto come riferimento.
+
+La consegna finale, con l'implementazione reale della ricerca globale e una
+parte di presentazione visiva aggiuntiva, e' sul branch `prototype/real-search`.
+
+- Note architetturali di questo branch: [`docs/architecture.md`](docs/architecture.md)
+- Come avviare l'ambiente di questo branch (servizi, porte, esempi): [`docker/README.md`](docker/README.md)
+
+---
+
 ## Contesto
 Questa solution contiene due microservizi .NET 8 (Aspire):
 
