@@ -45,7 +45,8 @@ Al termine dello startup:
 
 - http://localhost:8080 — frontend
 - http://localhost:8081/scalar — Scalar UI per AirportsService
-- http://localhost:8083/api/global-search?query=mxp — endpoint mockup della Global Search API
+- http://localhost:8083/api/global-search?query=milano — endpoint della Global Search API
+- http://localhost:8085 — grpcui (esplorazione di FlightsService via gRPC reflection)
 - http://localhost:18888 — Aspire Dashboard (log/traccia/metriche di tutti i servizi)
 - http://localhost:8084 — Redis Commander (per vedere le chiavi cacheate)
 
@@ -107,18 +108,22 @@ gia' per Scalar), quindi funziona con questo `docker-compose.yml` ma andrebbe ri
 o protetta in un'ipotetica build di Production — il container `grpcui` stesso avrebbe
 poco senso in una build del genere, e andrebbe rimosso insieme alla reflection.
 
-## Come vedere la cache in azione (anche con il mockup)
+## Come vedere la cache in azione
 
-Anche prima di implementare la ricerca reale puoi osservare il comportamento della
-cache, perche' il filtro che decide "quali elementi del set cacheato corrispondono
-ancora alla query piu' specifica" (in `CachingGlobalSearchService`) lavora sulla
-`Description` degli item, che nel mockup e' fissa (`"MXP - Malpensa (Italy)"`,
-`"AZ178 - MXP -> JFK"`). Prova ad esempio:
+La ricerca reale interroga Airports e Flights e cachea il risultato aggregato; il
+filtro che decide "quali elementi del set cacheato corrispondono ancora alla query
+piu' specifica" (in `CachingGlobalSearchService`) lavora sulla `Description` di
+ciascun elemento (`"{id} - {nome} ({paese})"` per gli aeroporti, `"{id} -
+{citta' di partenza} -> {citta' di arrivo}"` per i voli). I dati sono generati
+casualmente a ogni avvio, ma le citta' vengono scelte da un pool fisso (Milano,
+Roma, Firenze, Parigi, Londra, Madrid, Berlino, New York, Singapore, Tokyo, ...),
+quindi una query come "milano" produce sempre risultati reali su entrambe le fonti.
+Prova ad esempio:
 
 ```
-curl "http://localhost:8083/api/global-search?query=mxp"    # cache miss: interroga il mock, cachea 2 elementi
-curl "http://localhost:8083/api/global-search?query=mxpz"   # cache hit su "mxp": filtra in memoria, 0 risultati
-curl "http://localhost:8083/api/global-search?query=jfk"    # nessuna query cacheata e' sottostringa: nuovo cache miss
+curl "http://localhost:8083/api/global-search?query=milano"     # cache miss: interroga Airports e Flights, cachea il risultato
+curl "http://localhost:8083/api/global-search?query=milanoxx"   # cache hit su "milano": filtra in memoria, 0 risultati
+curl "http://localhost:8083/api/global-search?query=roma"       # nessuna query cacheata e' sottostringa: nuovo cache miss
 ```
 
 Per ispezionare direttamente lo stato di Redis, da terminale:
@@ -127,7 +132,7 @@ Per ispezionare direttamente lo stato di Redis, da terminale:
 docker exec -it redis redis-cli
 > KEYS globalsearch:*
 > SMEMBERS globalsearch:known-queries
-> TTL globalsearch:results:mxp
+> TTL globalsearch:results:milano
 ```
 
 oppure usa l'interfaccia grafica su http://localhost:8084 (Redis Commander).

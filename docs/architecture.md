@@ -298,6 +298,16 @@ separate) e persistente (il dettaglio letto dalla stessa riga cacheata, non da u
 nuova chiamata dal vivo). La tabella qui sotto separa i file essenziali alla sola
 risoluzione del quesito da quelli dedicati a questa parte aggiuntiva.
 
+La stessa curiosità ha guidato anche una scelta più circoscritta ma dello stesso
+segno: dockerizzare grpcui (`fullstorydev/grpcui`, immagine ufficiale, puntata su
+`flightsservice` con la reflection gRPC già attiva) invece di limitarsi a
+menzionarlo come opzione da installare a mano. Non serve a rispondere al quesito —
+FlightsService è già parte dello scaffold fornito — ma rende esplorabile
+visivamente, senza alcuna installazione, un servizio gRPC che altrimenti resterebbe
+opaco rispetto alle controparti REST (che hanno già Scalar/OpenAPI): stessa logica
+della parte di presentazione visiva sopra, applicata a uno strumento di sviluppo
+invece che a un dominio dati. Dettagli in `docker/README.md`.
+
 ### Elenco dei file, per categoria
 
 **Materiale originale della sfida** (fornito con il test, non modificato nella sua
